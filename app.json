@@ -1,25 +1,39 @@
 {
   "expo": {
-    "name": "GastosApp",
-    "slug": "GastosApp",
+    "name": "MisGastos",
+    "slug": "MisGastos",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "scheme": "misgastos",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.misgastos.app"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1A1A2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "package": "com.misgastos.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single",
+      "name": "MisGastos",
+      "shortName": "MisGastos",
+      "description": "Registra y controla los gastos de tus tarjetas",
+      "backgroundColor": "#0F0F1A",
+      "themeColor": "#6366F1"
+    },
+    "plugins": [
+      ["expo-router", { "root": "./src/app" }],
+      "expo-sqlite",
+      "expo-status-bar"
+    ]
   }
 }
