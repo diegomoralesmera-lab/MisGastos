@@ -15,23 +15,27 @@ import { hapticSuccess } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { CategoriaSelector } from '../../components/CategoriaSelector';
 import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
-import {
-  isConnected,
-  getAccount,
-  startLogin,
-  handleCallback,
-  disconnect,
-  getClientId,
-  setClientId,
-} from '../../services/googleAuth';
-import {
-  fetchBankEmails,
-  markAsImported,
-  GmailTransaction,
-} from '../../services/gmailSync';
 import { Tarjeta, Categoria } from '../../types';
 
-type Step = 'connect' | 'syncing' | 'results' | 'importing';
+const EMAIL_FORWARD_ADDRESS = 'import@gastos.saynet.ec';
+
+const API_BASE = typeof window !== 'undefined'
+  ? window.location.origin
+  : '';
+
+interface ServerGasto {
+  id: number;
+  monto: number;
+  comercio: string | null;
+  fecha: string;
+  banco: string | null;
+  tipo: string | null;
+  ultimos4: string | null;
+  categoria: string | null;
+  created_at: string;
+}
+
+type Step = 'setup' | 'syncing' | 'results' | 'importing';
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   Comida: ['restaurant', 'comida', 'food', 'pizza', 'burger', 'cafe', 'coffee', 'kfc', 'mcdonald'],
@@ -57,91 +61,56 @@ function guessCategory(comercio: string, categorias: Categoria[]): number | null
 
 export default function SyncScreen() {
   const theme = useTheme();
-  const [step, setStep] = useState<Step>('connect');
+  const [step, setStep] = useState<Step>('setup');
   const [error, setError] = useState('');
-  const [emails, setEmails] = useState<GmailTransaction[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [serverGastos, setServerGastos] = useState<ServerGasto[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
   const [tarjetas, setTarjetas] = useState<Tarjeta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [imported, setImported] = useState(0);
   const [processing, setProcessing] = useState(false);
-
-  const account = getAccount();
+  const [copied, setCopied] = useState(false);
 
   const init = useCallback(async () => {
     const [t, c] = await Promise.all([getTarjetas(), getCategorias()]);
     setTarjetas(t);
     setCategorias(c);
-
-    // Check for OAuth callback
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('code');
-      if (code) {
-        window.history.replaceState({}, '', window.location.pathname);
-        setStep('syncing');
-        try {
-          await handleCallback(code);
-          const results = await fetchBankEmails();
-          setEmails(results);
-          setSelected(new Set(results.map((e) => e.emailId)));
-          setStep('results');
-        } catch (err: any) {
-          setError(err.message || 'Error al conectar');
-          setStep('connect');
-        }
-        return;
-      }
-    }
-
-    if (isConnected()) {
-      handleSync();
-    } else {
-      setStep('connect');
-    }
   }, []);
 
-  useEffect(() => {
-    init();
-  }, [init]);
+  useEffect(() => { init(); }, [init]);
 
-  const handleConnect = async () => {
-    setError('');
+  const handleCopyEmail = async () => {
     try {
-      await startLogin();
-    } catch (err: any) {
-      if (err.message === 'NO_CLIENT_ID') {
-        setError('Configura el Client ID de Google primero');
-      } else {
-        setError(err.message || 'Error al iniciar sesion');
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(EMAIL_FORWARD_ADDRESS);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
       }
-    }
+    } catch {}
   };
 
   const handleSync = async () => {
     setStep('syncing');
     setError('');
     try {
-      const results = await fetchBankEmails();
-      setEmails(results);
-      setSelected(new Set(results.map((e) => e.emailId)));
+      const res = await fetch(`${API_BASE}/api/imports`);
+      if (!res.ok) throw new Error('Error al consultar el servidor');
+      const data = await res.json();
+      const gastos: ServerGasto[] = data.gastos || [];
+      setServerGastos(gastos);
+      setSelected(new Set(gastos.map((g) => g.id)));
       setStep('results');
     } catch (err: any) {
-      if (err.message === 'TOKEN_EXPIRED' || err.message === 'NOT_SIGNED_IN') {
-        setStep('connect');
-        setError('Sesion expirada. Conecta de nuevo.');
-      } else {
-        setError(err.message || 'Error al buscar correos');
-        setStep('results');
-      }
+      setError(err.message || 'Error de conexion');
+      setStep('results');
     }
   };
 
-  const toggleSelect = (emailId: string) => {
+  const toggleSelect = (id: number) => {
     const next = new Set(selected);
-    if (next.has(emailId)) next.delete(emailId);
-    else next.add(emailId);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
     setSelected(next);
   };
 
@@ -154,48 +123,46 @@ export default function SyncScreen() {
     setProcessing(true);
     setStep('importing');
     let count = 0;
-    const selectedEmails = emails.filter((e) => selected.has(e.emailId));
+    const selectedGastos = serverGastos.filter((g) => selected.has(g.id));
 
-    for (const email of selectedEmails) {
-      const matchedTarjeta = email.parsed.ultimos4
-        ? tarjetas.find((t) => t.ultimos4 === email.parsed.ultimos4)
+    for (const gasto of selectedGastos) {
+      const matchedTarjeta = gasto.ultimos4
+        ? tarjetas.find((t) => t.ultimos4 === gasto.ultimos4)
         : null;
 
-      const autoCategory = email.parsed.comercio
-        ? guessCategory(email.parsed.comercio, categorias)
+      const autoCategory = gasto.comercio
+        ? guessCategory(gasto.comercio, categorias)
+        : null;
+
+      const serverCategory = gasto.categoria
+        ? categorias.find((c) => c.nombre === gasto.categoria)?.id
         : null;
 
       try {
         await insertGasto({
-          monto: email.parsed.monto,
-          fecha: email.parsed.fecha || new Date().toISOString().split('T')[0],
-          nota: email.subject,
-          comercio: email.parsed.comercio || undefined,
+          monto: Number(gasto.monto),
+          fecha: gasto.fecha || new Date().toISOString().split('T')[0],
+          nota: gasto.banco ? `${gasto.banco} - ${gasto.tipo || 'email'}` : undefined,
+          comercio: gasto.comercio || undefined,
           tarjetaId: matchedTarjeta?.id || tarjetas[0]?.id,
-          categoriaId: autoCategory || categoriaId || categorias[categorias.length - 1]?.id,
+          categoriaId: serverCategory || autoCategory || categoriaId || categorias[categorias.length - 1]?.id,
         });
         count++;
       } catch {}
     }
 
-    markAsImported(selectedEmails.map((e) => e.emailId));
+    // Mark as imported on server
+    try {
+      await fetch(`${API_BASE}/api/imports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedGastos.map((g) => g.id) }),
+      });
+    } catch {}
+
     setImported(count);
     setProcessing(false);
     hapticSuccess();
-  };
-
-  const handleDisconnect = () => {
-    Alert.alert('Desconectar correo', 'Se cerrara la sesion de Gmail.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Desconectar',
-        style: 'destructive',
-        onPress: () => {
-          disconnect();
-          setStep('connect');
-        },
-      },
-    ]);
   };
 
   const formatDate = (iso: string) => {
@@ -214,20 +181,14 @@ export default function SyncScreen() {
           <Ionicons name="close" size={28} color={theme.text} />
         </Pressable>
         <Text style={[styles.title, { color: theme.text }]}>
-          {step === 'connect' ? 'Conecta tu correo' : 'Gastos encontrados'}
+          {step === 'setup' ? 'Importar gastos' : step === 'results' ? 'Gastos encontrados' : 'Sincronizando'}
         </Text>
-        {isConnected() ? (
-          <Pressable onPress={handleDisconnect} hitSlop={12}>
-            <Ionicons name="log-out-outline" size={24} color={theme.danger} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 28 }} />
-        )}
+        <View style={{ width: 28 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* CONNECT */}
-        {step === 'connect' && (
+        {/* SETUP */}
+        {step === 'setup' && (
           <>
             <View style={styles.connectBox}>
               <View style={[styles.iconCircle, { backgroundColor: theme.primary + '20' }]}>
@@ -237,7 +198,63 @@ export default function SyncScreen() {
                 Registra tus gastos{'\n'}automaticamente
               </Text>
               <Text style={[styles.connectSubtitle, { color: theme.textSecondary }]}>
-                Conecta tu correo y detectaremos las notificaciones de tu banco sin que tengas que escribir nada.
+                Reenvia los emails de tu banco y detectaremos tus gastos sin que escribas nada.
+              </Text>
+            </View>
+
+            <View style={[styles.setupCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.setupStep, { color: theme.primary }]}>PASO 1</Text>
+              <Text style={[styles.setupTitle, { color: theme.text }]}>
+                Copia esta direccion de email
+              </Text>
+              <Pressable
+                onPress={handleCopyEmail}
+                style={[styles.emailBox, { backgroundColor: theme.background, borderColor: theme.primary }]}
+              >
+                <Text style={[styles.emailText, { color: theme.primary }]}>
+                  {EMAIL_FORWARD_ADDRESS}
+                </Text>
+                <Ionicons
+                  name={copied ? 'checkmark-circle' : 'copy'}
+                  size={20}
+                  color={theme.primary}
+                />
+              </Pressable>
+              {copied && (
+                <Text style={[styles.copiedText, { color: theme.accent }]}>Copiado!</Text>
+              )}
+            </View>
+
+            <View style={[styles.setupCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.setupStep, { color: theme.primary }]}>PASO 2</Text>
+              <Text style={[styles.setupTitle, { color: theme.text }]}>
+                Crea una regla de reenvio
+              </Text>
+              <Text style={[styles.setupDesc, { color: theme.textSecondary }]}>
+                En tu correo (Gmail, Hotmail, Yahoo, etc.), crea una regla que reenvie automaticamente
+                los emails de tu banco a la direccion de arriba.
+              </Text>
+              <View style={styles.bankList}>
+                {['alertas@pichincha.com', 'notificaciones@pichincha.com', 'alertas@bancoguayaquil.com'].map((email) => (
+                  <View key={email} style={[styles.bankItem, { backgroundColor: theme.background }]}>
+                    <Ionicons name="mail-outline" size={14} color={theme.textTertiary} />
+                    <Text style={[styles.bankEmail, { color: theme.textSecondary }]}>{email}</Text>
+                  </View>
+                ))}
+                <Text style={[styles.bankMore, { color: theme.textTertiary }]}>
+                  + otros bancos de Ecuador
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.setupCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+              <Text style={[styles.setupStep, { color: theme.primary }]}>PASO 3</Text>
+              <Text style={[styles.setupTitle, { color: theme.text }]}>
+                Sincroniza desde aqui
+              </Text>
+              <Text style={[styles.setupDesc, { color: theme.textSecondary }]}>
+                Toca "Buscar gastos" para ver los gastos detectados de tus emails reenviados.
+                Aparecen en segundos.
               </Text>
             </View>
 
@@ -245,7 +262,8 @@ export default function SyncScreen() {
               {[
                 { icon: 'flash', text: 'Detecta gastos automaticamente' },
                 { icon: 'shield-checkmark', text: 'Solo lee emails del banco' },
-                { icon: 'time', text: 'Sincroniza en segundos' },
+                { icon: 'globe', text: 'Funciona con cualquier correo' },
+                { icon: 'lock-closed', text: 'No necesita contrasenas' },
               ].map((f) => (
                 <View key={f.icon} style={styles.featureItem}>
                   <Ionicons name={f.icon as any} size={20} color={theme.primary} />
@@ -253,13 +271,6 @@ export default function SyncScreen() {
                 </View>
               ))}
             </View>
-
-            {error ? (
-              <View style={[styles.errorBox, { backgroundColor: theme.danger + '15' }]}>
-                <Ionicons name="alert-circle" size={18} color={theme.danger} />
-                <Text style={[styles.errorText, { color: theme.danger }]}>{error}</Text>
-              </View>
-            ) : null}
           </>
         )}
 
@@ -268,10 +279,7 @@ export default function SyncScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color={theme.primary} />
             <Text style={[styles.loadingText, { color: theme.textSecondary }]}>
-              Buscando notificaciones bancarias...
-            </Text>
-            <Text style={[styles.loadingSubtext, { color: theme.textTertiary }]}>
-              Revisando emails de los ultimos 7 dias
+              Buscando gastos nuevos...
             </Text>
           </View>
         )}
@@ -279,18 +287,6 @@ export default function SyncScreen() {
         {/* RESULTS */}
         {step === 'results' && (
           <>
-            {account && (
-              <View style={[styles.accountBadge, { backgroundColor: theme.surface }]}>
-                <Ionicons name="person-circle" size={20} color={theme.primary} />
-                <Text style={[styles.accountText, { color: theme.textSecondary }]}>
-                  {account.email}
-                </Text>
-                <Pressable onPress={handleSync} hitSlop={8}>
-                  <Ionicons name="refresh" size={18} color={theme.primary} />
-                </Pressable>
-              </View>
-            )}
-
             {error ? (
               <View style={[styles.errorBox, { backgroundColor: theme.danger + '15' }]}>
                 <Ionicons name="alert-circle" size={18} color={theme.danger} />
@@ -298,60 +294,60 @@ export default function SyncScreen() {
               </View>
             ) : null}
 
-            {emails.length === 0 ? (
+            {serverGastos.length === 0 ? (
               <View style={styles.emptyBox}>
                 <Ionicons name="checkmark-circle" size={48} color={theme.accent} />
                 <Text style={[styles.emptyTitle, { color: theme.text }]}>Todo al dia</Text>
                 <Text style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-                  No hay nuevas notificaciones bancarias por importar.
+                  No hay nuevos gastos por importar.{'\n'}Reenvia un email de tu banco para probar.
                 </Text>
               </View>
             ) : (
               <>
                 <Text style={[styles.resultsTitle, { color: theme.text }]}>
-                  {emails.length} gasto{emails.length !== 1 ? 's' : ''} encontrado{emails.length !== 1 ? 's' : ''}
+                  {serverGastos.length} gasto{serverGastos.length !== 1 ? 's' : ''} encontrado{serverGastos.length !== 1 ? 's' : ''}
                 </Text>
 
-                {emails.map((email) => (
+                {serverGastos.map((gasto) => (
                   <Pressable
-                    key={email.emailId}
-                    onPress={() => toggleSelect(email.emailId)}
+                    key={gasto.id}
+                    onPress={() => toggleSelect(gasto.id)}
                     style={[
                       styles.emailCard,
                       {
                         backgroundColor: theme.surface,
-                        borderColor: selected.has(email.emailId) ? theme.primary : theme.border,
-                        borderWidth: selected.has(email.emailId) ? 2 : 1,
+                        borderColor: selected.has(gasto.id) ? theme.primary : theme.border,
+                        borderWidth: selected.has(gasto.id) ? 2 : 1,
                       },
                     ]}
                   >
                     <View style={styles.emailCheck}>
                       <Ionicons
-                        name={selected.has(email.emailId) ? 'checkbox' : 'square-outline'}
+                        name={selected.has(gasto.id) ? 'checkbox' : 'square-outline'}
                         size={24}
-                        color={selected.has(email.emailId) ? theme.primary : theme.textTertiary}
+                        color={selected.has(gasto.id) ? theme.primary : theme.textTertiary}
                       />
                     </View>
                     <View style={styles.emailInfo}>
                       <View style={styles.emailTop}>
                         <Text style={[styles.emailAmount, { color: theme.text }]}>
-                          ${email.parsed.monto.toFixed(2)}
+                          ${Number(gasto.monto).toFixed(2)}
                         </Text>
-                        {email.parsed.banco && (
+                        {gasto.banco && (
                           <View style={[styles.bankChip, { backgroundColor: theme.primary + '20' }]}>
                             <Text style={[styles.bankChipText, { color: theme.primary }]}>
-                              {email.parsed.banco}
+                              {gasto.banco}
                             </Text>
                           </View>
                         )}
                       </View>
-                      {email.parsed.comercio && (
+                      {gasto.comercio && (
                         <Text style={[styles.emailComercio, { color: theme.textSecondary }]}>
-                          {email.parsed.comercio}
+                          {gasto.comercio}
                         </Text>
                       )}
                       <Text style={[styles.emailDate, { color: theme.textTertiary }]}>
-                        {formatDate(email.receivedDate)}
+                        {formatDate(gasto.fecha || gasto.created_at)}
                       </Text>
                     </View>
                   </Pressable>
@@ -395,29 +391,28 @@ export default function SyncScreen() {
 
       {/* Footer */}
       <View style={styles.footer}>
-        {step === 'connect' && (
-          <Pressable
-            style={[styles.googleBtn]}
-            onPress={handleConnect}
-          >
-            <Text style={styles.googleIcon}>G</Text>
-            <Text style={styles.googleBtnText}>Conectar con Google</Text>
-          </Pressable>
+        {step === 'setup' && (
+          <>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+              onPress={handleSync}
+            >
+              <Ionicons name="sync" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryBtnText}>Buscar gastos</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: theme.border }]}
+              onPress={() => router.replace('/gasto/importar')}
+            >
+              <Ionicons name="clipboard" size={18} color={theme.textSecondary} />
+              <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                Pegar texto manualmente
+              </Text>
+            </Pressable>
+          </>
         )}
 
-        {step === 'connect' && (
-          <Pressable
-            style={[styles.secondaryBtn, { borderColor: theme.border }]}
-            onPress={() => router.replace('/gasto/importar')}
-          >
-            <Ionicons name="clipboard" size={18} color={theme.textSecondary} />
-            <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
-              Pegar texto manualmente
-            </Text>
-          </Pressable>
-        )}
-
-        {step === 'results' && emails.length > 0 && (
+        {step === 'results' && serverGastos.length > 0 && (
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: theme.primary, opacity: selected.size === 0 ? 0.5 : 1 }]}
             onPress={handleImportAll}
@@ -429,14 +424,25 @@ export default function SyncScreen() {
           </Pressable>
         )}
 
-        {step === 'results' && emails.length === 0 && (
-          <Pressable
-            style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
-            onPress={handleSync}
-          >
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
-            <Text style={styles.primaryBtnText}>Buscar de nuevo</Text>
-          </Pressable>
+        {step === 'results' && serverGastos.length === 0 && (
+          <>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+              onPress={handleSync}
+            >
+              <Ionicons name="refresh" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryBtnText}>Buscar de nuevo</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: theme.border }]}
+              onPress={() => setStep('setup')}
+            >
+              <Ionicons name="arrow-back" size={18} color={theme.textSecondary} />
+              <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                Ver instrucciones
+              </Text>
+            </Pressable>
+          </>
         )}
 
         {step === 'importing' && !processing && (
@@ -464,7 +470,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 18, fontWeight: '700' },
   content: { paddingBottom: 160 },
-  connectBox: { alignItems: 'center', paddingTop: 40, paddingHorizontal: 32 },
+  connectBox: { alignItems: 'center', paddingTop: 24, paddingHorizontal: 32 },
   iconCircle: {
     width: 96,
     height: 96,
@@ -485,19 +491,73 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
+  setupCard: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    padding: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  setupStep: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  setupTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  setupDesc: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emailBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    marginTop: 8,
+  },
+  emailText: {
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  copiedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  bankList: {
+    marginTop: 12,
+    gap: 6,
+  },
+  bankItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  bankEmail: { fontSize: 12 },
+  bankMore: { fontSize: 12, marginLeft: 10, marginTop: 2 },
   featureList: {
-    marginTop: 32,
+    marginTop: 24,
     marginHorizontal: 32,
-    gap: 16,
+    gap: 14,
   },
   featureItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  featureText: {
-    fontSize: 15,
-  },
+  featureText: { fontSize: 15 },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -510,20 +570,9 @@ const styles = StyleSheet.create({
   errorText: { flex: 1, fontSize: 13 },
   loadingBox: { alignItems: 'center', paddingTop: 80, gap: 16 },
   loadingText: { fontSize: 16, fontWeight: '600' },
-  loadingSubtext: { fontSize: 13 },
-  accountBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 16,
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 12,
-  },
-  accountText: { fontSize: 13, flex: 1 },
   emptyBox: { alignItems: 'center', paddingTop: 60, gap: 8 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginTop: 8 },
-  emptySubtitle: { fontSize: 14, textAlign: 'center', paddingHorizontal: 32 },
+  emptySubtitle: { fontSize: 14, textAlign: 'center', paddingHorizontal: 32, lineHeight: 20 },
   resultsTitle: { fontSize: 16, fontWeight: '700', marginHorizontal: 16, marginBottom: 12 },
   emailCard: {
     flexDirection: 'row',
@@ -561,43 +610,6 @@ const styles = StyleSheet.create({
     paddingBottom: 34,
     gap: 10,
   },
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
-    gap: 10,
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  googleIcon: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#4285F4',
-  },
-  googleBtnText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333333',
-  },
-  secondaryBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 16,
-    gap: 8,
-    borderWidth: 1,
-  },
-  secondaryBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
   primaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -607,4 +619,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 16,
+    gap: 8,
+    borderWidth: 1,
+  },
+  secondaryBtnText: { fontSize: 14, fontWeight: '600' },
 });

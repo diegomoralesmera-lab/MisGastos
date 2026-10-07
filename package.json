@@ -5,6 +5,8 @@
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
+    "@neondatabase/serverless": "^1.2.0",
+    "@vercel/node": "^22.0.0",
     "expo": "~57.0.26",
     "expo-constants": "~57.0.20",
     "expo-haptics": "~57.0.3",
