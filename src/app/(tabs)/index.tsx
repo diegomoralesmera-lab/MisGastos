@@ -168,7 +168,7 @@ export default function HomeScreen() {
             return;
           }
           hapticImpact('medium');
-          router.push('/gasto/sync');
+          router.push('/gasto/importar');
         }}
       >
         <Ionicons name="mail-open" size={22} color={theme.primary} />

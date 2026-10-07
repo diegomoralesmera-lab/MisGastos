@@ -11,16 +11,23 @@ export interface ParsedTransaction {
 function parsePichincha(text: string): ParsedTransaction | null {
   const normalized = text.replace(/\s+/g, ' ');
 
-  // Transferencia
+  // Transferencia exitosa - real Pichincha email format
   if (/transferencia exitosa/i.test(normalized)) {
     const monto = normalized.match(/Monto[:\s]+\$?([\d.,]+)/i);
     const concepto = normalized.match(/Concepto[:\s]+(.+?)(?:\s+Cuenta|\s*$)/i);
     const fecha = normalized.match(/Fecha[:\s]+([\d/]+)/i);
+    const cuentaOrigen = normalized.match(/Cuenta de origen[^*]*(\*{2,}\d{4})/i);
+    const nombreDestino = normalized.match(/Cuenta destino[^N]*Nombre[:\s]+(.+?)(?:\s+N[uú]mero)/i);
+    const cuentaDestino = normalized.match(/Cuenta destino[^*]*(\*{2,}\d{4})/i);
+
     if (monto) {
+      const comercioText = nombreDestino?.[1]?.trim() || concepto?.[1]?.trim();
+      const ultimos4Origen = cuentaOrigen?.[1]?.replace(/\*/g, '').slice(-4);
       return {
         monto: parseAmount(monto[1]),
-        comercio: concepto?.[1]?.trim(),
+        comercio: comercioText,
         fecha: parseDate(fecha?.[1]),
+        ultimos4: ultimos4Origen,
         banco: 'Pichincha',
         tipo: 'transferencia',
       };
