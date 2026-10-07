@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Alert,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +16,7 @@ import { hapticImpact } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { GastoItem } from '../../components/GastoItem';
 import { getGastosMes, getTotalMes, deleteGasto, getTarjetas } from '../../db/database';
+import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
 
 const MESES = [
@@ -31,6 +33,9 @@ export default function HomeScreen() {
   const [total, setTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [hasTarjetas, setHasTarjetas] = useState(true);
+  const [clipboardBanner, setClipboardBanner] = useState<{ text: string; comercio: string; monto: number } | null>(null);
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+  const lastClipRef = useRef('');
 
   const loadData = useCallback(async () => {
     const [gastosData, totalData, tarjetas] = await Promise.all([
@@ -46,7 +51,28 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData])
+      // Check clipboard for bank notifications
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.readText) {
+        navigator.clipboard.readText().then((clip) => {
+          if (!clip || clip.length < 20 || clip === lastClipRef.current) return;
+          const result = parseNotification(clip);
+          if (result && result.monto > 0) {
+            lastClipRef.current = clip;
+            setClipboardBanner({
+              text: clip,
+              comercio: result.comercio || result.banco || 'Gasto',
+              monto: result.monto,
+            });
+            Animated.spring(bannerAnim, {
+              toValue: 1,
+              useNativeDriver: true,
+              tension: 80,
+              friction: 10,
+            }).start();
+          }
+        }).catch(() => {});
+      }
+    }, [loadData, bannerAnim])
   );
 
   const onRefresh = async () => {
@@ -67,6 +93,28 @@ export default function HomeScreen() {
     }
     setMes(nuevoMes);
     setAno(nuevoAno);
+  };
+
+  const dismissBanner = () => {
+    Animated.timing(bannerAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => setClipboardBanner(null));
+  };
+
+  const handleImportClipboard = () => {
+    if (!clipboardBanner) return;
+    if (!hasTarjetas) {
+      Alert.alert('Agrega una tarjeta', 'Primero necesitas agregar al menos una tarjeta.', [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Agregar', onPress: () => router.push('/tarjeta/nueva') },
+      ]);
+      return;
+    }
+    hapticImpact('medium');
+    dismissBanner();
+    router.push({ pathname: '/gasto/importar', params: { clipText: clipboardBanner.text } });
   };
 
   const handleNuevoGasto = () => {
@@ -129,6 +177,37 @@ export default function HomeScreen() {
           {gastos.length} {gastos.length === 1 ? 'gasto' : 'gastos'}
         </Text>
       </View>
+
+      {clipboardBanner && (
+        <Animated.View
+          style={[
+            styles.clipBanner,
+            {
+              backgroundColor: theme.accent + '15',
+              borderColor: theme.accent,
+              opacity: bannerAnim,
+              transform: [{ translateY: bannerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
+            },
+          ]}
+        >
+          <Pressable style={styles.clipBannerContent} onPress={handleImportClipboard}>
+            <View style={[styles.clipIcon, { backgroundColor: theme.accent }]}>
+              <Ionicons name="clipboard" size={18} color="#FFFFFF" />
+            </View>
+            <View style={styles.clipInfo}>
+              <Text style={[styles.clipTitle, { color: theme.text }]}>
+                Gasto detectado en portapapeles
+              </Text>
+              <Text style={[styles.clipDetail, { color: theme.textSecondary }]}>
+                ${clipboardBanner.monto.toFixed(2)} - {clipboardBanner.comercio}
+              </Text>
+            </View>
+            <Pressable onPress={dismissBanner} hitSlop={12}>
+              <Ionicons name="close" size={20} color={theme.textTertiary} />
+            </Pressable>
+          </Pressable>
+        </Animated.View>
+      )}
 
       <FlatList
         data={gastos}
@@ -249,6 +328,37 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 13,
     marginTop: 4,
+  },
+  clipBanner: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+  },
+  clipBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 12,
+  },
+  clipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clipInfo: {
+    flex: 1,
+  },
+  clipTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  clipDetail: {
+    fontSize: 13,
+    marginTop: 2,
   },
   fabImport: {
     position: 'absolute',

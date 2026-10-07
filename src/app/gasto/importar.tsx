@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticSuccess } from '../../hooks/useHaptics';
@@ -20,8 +20,34 @@ import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
 import { parseNotification, ParsedTransaction } from '../../utils/bankParser';
 import { Tarjeta, Categoria } from '../../types';
 
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  Comida: ['restaurant', 'comida', 'food', 'pizza', 'burger', 'cafe', 'coffee', 'kfc', 'mcdonald'],
+  Transporte: ['uber', 'taxi', 'cabify', 'gasolina', 'gas', 'peaje', 'riocargo', 'courier', 'envio', 'express'],
+  Supermercado: ['supermaxi', 'megamaxi', 'tia', 'coral', 'supermercado', 'market', 'gran aki', 'santa maria'],
+  Salud: ['farmacia', 'hospital', 'clinica', 'medic', 'dental', 'optic', 'fybeca', 'sana sana'],
+  Educacion: ['school', 'colegio', 'universidad', 'homeschool', 'educacion', 'curso', 'academy'],
+  Ropa: ['zara', 'h&m', 'ropa', 'fashion', 'shoe', 'zapato', 'calzado'],
+  Entretenimiento: ['netflix', 'spotify', 'cine', 'cinema', 'juego', 'game', 'play'],
+  Servicios: ['electrica', 'agua', 'telefon', 'internet', 'cnt', 'claro', 'movistar', 'light'],
+  Suscripciones: ['subscription', 'suscripcion', 'premium', 'plan', 'mensual', 'annual'],
+  Hogar: ['ferreteria', 'mueble', 'hogar', 'casa', 'home', 'ikea'],
+  Viajes: ['hotel', 'vuelo', 'flight', 'airbnb', 'booking', 'viaje', 'travel'],
+};
+
+function guessCategory(comercio: string, categorias: Categoria[]): number | null {
+  const lower = comercio.toLowerCase();
+  for (const [catName, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some((kw) => lower.includes(kw))) {
+      const cat = categorias.find((c) => c.nombre === catName);
+      if (cat) return cat.id;
+    }
+  }
+  return null;
+}
+
 export default function ImportarGastoScreen() {
   const theme = useTheme();
+  const params = useLocalSearchParams<{ clipText?: string }>();
   const [textoNotificacion, setTextoNotificacion] = useState('');
   const [parsed, setParsed] = useState<ParsedTransaction | null>(null);
   const [tarjetas, setTarjetas] = useState<Tarjeta[]>([]);
@@ -43,6 +69,50 @@ export default function ImportarGastoScreen() {
     })();
   }, []);
 
+  const applyParsed = useCallback(
+    (result: ParsedTransaction, cats: Categoria[], cards: Tarjeta[]) => {
+      setParsed(result);
+      setMonto(result.monto.toFixed(2));
+      setComercio(result.comercio ?? '');
+      setFecha(result.fecha ?? new Date().toISOString().split('T')[0]);
+
+      if (result.ultimos4 && cards.length > 0) {
+        const match = cards.find((t) => t.ultimos4 === result.ultimos4);
+        if (match) setTarjetaId(match.id);
+      }
+
+      if (result.comercio) {
+        const guessed = guessCategory(result.comercio, cats);
+        if (guessed) setCategoriaId(guessed);
+      }
+
+      setStep('review');
+    },
+    []
+  );
+
+  // Auto-parse clipboard text passed from home screen
+  useEffect(() => {
+    if (params.clipText && categorias.length > 0 && tarjetas.length > 0) {
+      setTextoNotificacion(params.clipText);
+      const result = parseNotification(params.clipText);
+      if (result) {
+        applyParsed(result, categorias, tarjetas);
+      }
+    }
+  }, [params.clipText, categorias, tarjetas, applyParsed]);
+
+  const handleTextChange = (text: string) => {
+    setTextoNotificacion(text);
+    // Auto-parse if text looks substantial (pasted, not typing char by char)
+    if (text.length > 30) {
+      const result = parseNotification(text);
+      if (result) {
+        applyParsed(result, categorias, tarjetas);
+      }
+    }
+  };
+
   const handleParse = () => {
     if (!textoNotificacion.trim()) {
       Alert.alert('Pega el texto de la notificacion del banco');
@@ -58,17 +128,7 @@ export default function ImportarGastoScreen() {
       return;
     }
 
-    setParsed(result);
-    setMonto(result.monto.toFixed(2));
-    setComercio(result.comercio ?? '');
-    setFecha(result.fecha ?? new Date().toISOString().split('T')[0]);
-
-    if (result.ultimos4 && tarjetas.length > 0) {
-      const match = tarjetas.find((t) => t.ultimos4 === result.ultimos4);
-      if (match) setTarjetaId(match.id);
-    }
-
-    setStep('review');
+    applyParsed(result, categorias, tarjetas);
   };
 
   const handleSave = async () => {
@@ -128,25 +188,21 @@ export default function ImportarGastoScreen() {
         {step === 'paste' ? (
           <ScrollView contentContainerStyle={styles.form} showsVerticalScrollIndicator={false}>
             <View style={[styles.infoBox, { backgroundColor: theme.primary + '15' }]}>
-              <Ionicons name="information-circle" size={20} color={theme.primary} />
+              <Ionicons name="clipboard" size={20} color={theme.primary} />
               <Text style={[styles.infoText, { color: theme.text }]}>
-                Pega aqui el texto de la notificacion que te envia tu banco por email cuando
-                haces una compra o transferencia.
+                Pega el texto de la notificacion de tu banco. Se detectara automaticamente.
               </Text>
             </View>
 
-            <Text style={[styles.label, { color: theme.textSecondary }]}>
-              Texto de la notificacion
-            </Text>
             <TextInput
               style={[
                 styles.textArea,
                 { backgroundColor: theme.surface, color: theme.text, borderColor: theme.border },
               ]}
-              placeholder="Pega aqui el texto del email del banco..."
+              placeholder="Pega aqui el texto del email o SMS del banco..."
               placeholderTextColor={theme.textTertiary}
               value={textoNotificacion}
-              onChangeText={setTextoNotificacion}
+              onChangeText={handleTextChange}
               multiline
               numberOfLines={8}
               textAlignVertical="top"
@@ -154,7 +210,7 @@ export default function ImportarGastoScreen() {
             />
 
             <Text style={[styles.supportedBanks, { color: theme.textTertiary }]}>
-              Bancos soportados: Pichincha, Guayaquil, Produbanco, Pacifico, Austro,
+              Bancos: Pichincha, Guayaquil, Produbanco, Pacifico, Austro,
               Internacional, Diners Club
             </Text>
           </ScrollView>
