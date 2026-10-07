@@ -154,6 +154,26 @@ export default function HomeScreen() {
       />
 
       <Pressable
+        style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
+        onPress={() => {
+          if (!hasTarjetas) {
+            Alert.alert(
+              'Agrega una tarjeta',
+              'Primero necesitas agregar al menos una tarjeta.',
+              [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Agregar tarjeta', onPress: () => router.push('/tarjeta/nueva') },
+              ]
+            );
+            return;
+          }
+          hapticImpact('medium');
+          router.push('/gasto/importar');
+        }}
+      >
+        <Ionicons name="mail-open" size={22} color={theme.primary} />
+      </Pressable>
+      <Pressable
         style={[styles.fab, { backgroundColor: theme.primary }]}
         onPress={handleNuevoGasto}
       >
@@ -229,6 +249,22 @@ const styles = StyleSheet.create({
   emptySubtext: {
     fontSize: 13,
     marginTop: 4,
+  },
+  fabImport: {
+    position: 'absolute',
+    bottom: 170,
+    right: 24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 4,
   },
   fab: {
     position: 'absolute',

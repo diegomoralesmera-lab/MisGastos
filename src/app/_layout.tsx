@@ -18,6 +18,10 @@ export default function RootLayout() {
           name="tarjeta/nueva"
           options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
         />
+        <Stack.Screen
+          name="gasto/importar"
+          options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+        />
       </Stack>
     </>
   );
