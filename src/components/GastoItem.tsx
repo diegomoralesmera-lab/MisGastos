@@ -9,9 +9,10 @@ interface Props {
 
 export function GastoItem({ gasto, onLongPress }: Props) {
   const theme = useTheme();
-  const fecha = new Date(gasto.fecha + 'T12:00:00');
-  const dia = fecha.getDate();
-  const mesCorto = fecha.toLocaleDateString('es', { month: 'short' });
+  const fechaStr = (gasto.fecha || '').split('T')[0];
+  const fecha = new Date(fechaStr + 'T12:00:00');
+  const dia = isNaN(fecha.getTime()) ? '' : fecha.getDate();
+  const mesCorto = isNaN(fecha.getTime()) ? '' : fecha.toLocaleDateString('es', { month: 'short' });
 
   return (
     <Pressable
