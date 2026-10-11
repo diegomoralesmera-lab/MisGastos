@@ -18,6 +18,22 @@ import { GastoItem } from '../../components/GastoItem';
 import { getGastosMes, getTotalMes, deleteGasto, getTarjetas } from '../../db/database';
 import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
+import { Platform } from 'react-native';
+
+function webAlert(title: string, message: string, buttons?: Array<{text: string; style?: string; onPress?: () => void}>) {
+  if (Platform.OS === 'web') {
+    const action = buttons?.find(b => b.style !== 'cancel');
+    if (action) {
+      if (window.confirm(`${title}\n${message}`)) {
+        action.onPress?.();
+      }
+    } else {
+      window.alert(`${title}\n${message}`);
+    }
+  } else {
+    Alert.alert(title, message, buttons as any);
+  }
+}
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -106,7 +122,7 @@ export default function HomeScreen() {
   const handleImportClipboard = () => {
     if (!clipboardBanner) return;
     if (!hasTarjetas) {
-      Alert.alert('Agrega una tarjeta', 'Primero necesitas agregar al menos una tarjeta.', [
+      webAlert('Agrega una tarjeta', 'Primero necesitas agregar al menos una tarjeta.', [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Agregar', onPress: () => router.push('/tarjeta/nueva') },
       ]);
@@ -119,7 +135,7 @@ export default function HomeScreen() {
 
   const handleNuevoGasto = () => {
     if (!hasTarjetas) {
-      Alert.alert(
+      webAlert(
         'Agrega una tarjeta',
         'Primero necesitas agregar al menos una tarjeta para registrar gastos.',
         [
@@ -135,7 +151,7 @@ export default function HomeScreen() {
 
   const handleDeleteGasto = (gasto: GastoConDetalles) => {
     hapticImpact('light');
-    Alert.alert(
+    webAlert(
       'Eliminar gasto',
       `Eliminar $${gasto.monto.toFixed(2)} en ${gasto.comercio || gasto.categoriaNombre}?`,
       [
@@ -236,7 +252,7 @@ export default function HomeScreen() {
         style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
         onPress={() => {
           if (!hasTarjetas) {
-            Alert.alert(
+            webAlert(
               'Agrega una tarjeta',
               'Primero necesitas agregar al menos una tarjeta.',
               [

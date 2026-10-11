@@ -16,6 +16,7 @@ import { useTheme } from '../../hooks/useColorScheme';
 import { CategoriaSelector } from '../../components/CategoriaSelector';
 import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
 import { Tarjeta, Categoria } from '../../types';
+import { Platform } from 'react-native';
 
 const EMAIL_FORWARD_ADDRESS = 'import@gastos.saynet.ec';
 
@@ -116,7 +117,8 @@ export default function SyncScreen() {
 
   const handleImportAll = async () => {
     if (selected.size === 0) {
-      Alert.alert('Selecciona al menos un gasto');
+      if (Platform.OS === 'web') window.alert('Selecciona al menos un gasto');
+      else Alert.alert('Selecciona al menos un gasto');
       return;
     }
 
@@ -177,7 +179,7 @@ export default function SyncScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => router.replace('/')} hitSlop={12}>
           <Ionicons name="close" size={28} color={theme.text} />
         </Pressable>
         <Text style={[styles.title, { color: theme.text }]}>
@@ -448,7 +450,7 @@ export default function SyncScreen() {
         {step === 'importing' && !processing && (
           <Pressable
             style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
-            onPress={() => router.back()}
+            onPress={() => router.replace('/')}
           >
             <Ionicons name="home" size={20} color="#FFFFFF" />
             <Text style={styles.primaryBtnText}>Volver al inicio</Text>
