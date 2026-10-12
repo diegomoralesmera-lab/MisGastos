@@ -73,6 +73,56 @@ export async function insertTarjeta(
   return id;
 }
 
+const BANK_COLORS: Record<string, string> = {
+  pichincha: '#FFD100',
+  guayaquil: '#C4007A',
+  produbanco: '#00A650',
+  pacifico: '#0072CE',
+  austro: '#E30613',
+  internacional: '#003DA5',
+  diners: '#004B87',
+};
+
+const FALLBACK_COLORS = ['#6366F1', '#EC4899', '#14B8A6', '#F59E0B', '#8B5CF6'];
+
+function bankColor(nombre: string, existing: number): string {
+  const lower = nombre.toLowerCase();
+  for (const [key, color] of Object.entries(BANK_COLORS)) {
+    if (lower.includes(key)) return color;
+  }
+  return FALLBACK_COLORS[existing % FALLBACK_COLORS.length];
+}
+
+export async function findOrCreateTarjeta(
+  banco?: string | null,
+  ultimos4?: string | null
+): Promise<number> {
+  const data = getData();
+  const nombre = banco?.trim() || 'Tarjeta detectada';
+
+  if (ultimos4) {
+    const byDigits = data.tarjetas.find((t) => t.ultimos4 === ultimos4);
+    if (byDigits) return byDigits.id;
+  } else {
+    const byName = data.tarjetas.find(
+      (t) => t.nombre.toLowerCase() === nombre.toLowerCase()
+    );
+    if (byName) return byName.id;
+  }
+
+  const id = data.nextTarjetaId++;
+  data.tarjetas.push({
+    id,
+    nombre,
+    ultimos4: ultimos4 || '0000',
+    color: bankColor(nombre, data.tarjetas.length),
+    tipo: 'debito',
+    createdAt: new Date().toISOString(),
+  });
+  persist();
+  return id;
+}
+
 export async function deleteTarjeta(id: number): Promise<void> {
   const data = getData();
   data.tarjetas = data.tarjetas.filter((t) => t.id !== id);

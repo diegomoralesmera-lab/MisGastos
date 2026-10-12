@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticSuccess } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { CategoriaSelector } from '../../components/CategoriaSelector';
-import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
+import { getTarjetas, getCategorias, insertGasto, findOrCreateTarjeta } from '../../db/database';
 import { parseNotification, ParsedTransaction } from '../../utils/bankParser';
 import { Tarjeta, Categoria } from '../../types';
 
@@ -70,16 +70,15 @@ export default function ImportarGastoScreen() {
   }, []);
 
   const applyParsed = useCallback(
-    (result: ParsedTransaction, cats: Categoria[], cards: Tarjeta[]) => {
+    async (result: ParsedTransaction, cats: Categoria[]) => {
       setParsed(result);
       setMonto(result.monto.toFixed(2));
       setComercio(result.comercio ?? '');
       setFecha(result.fecha ?? new Date().toISOString().split('T')[0]);
 
-      if (result.ultimos4 && cards.length > 0) {
-        const match = cards.find((t) => t.ultimos4 === result.ultimos4);
-        if (match) setTarjetaId(match.id);
-      }
+      const tid = await findOrCreateTarjeta(result.banco, result.ultimos4);
+      setTarjetas(await getTarjetas());
+      setTarjetaId(tid);
 
       if (result.comercio) {
         const guessed = guessCategory(result.comercio, cats);
@@ -93,14 +92,14 @@ export default function ImportarGastoScreen() {
 
   // Auto-parse clipboard text passed from home screen
   useEffect(() => {
-    if (params.clipText && categorias.length > 0 && tarjetas.length > 0) {
+    if (params.clipText && categorias.length > 0) {
       setTextoNotificacion(params.clipText);
       const result = parseNotification(params.clipText);
       if (result) {
-        applyParsed(result, categorias, tarjetas);
+        applyParsed(result, categorias);
       }
     }
-  }, [params.clipText, categorias, tarjetas, applyParsed]);
+  }, [params.clipText, categorias, applyParsed]);
 
   const handleTextChange = (text: string) => {
     setTextoNotificacion(text);
@@ -108,7 +107,7 @@ export default function ImportarGastoScreen() {
     if (text.length > 30) {
       const result = parseNotification(text);
       if (result) {
-        applyParsed(result, categorias, tarjetas);
+        applyParsed(result, categorias);
       }
     }
   };
@@ -128,7 +127,7 @@ export default function ImportarGastoScreen() {
       return;
     }
 
-    applyParsed(result, categorias, tarjetas);
+    applyParsed(result, categorias);
   };
 
   const handleSave = async () => {

@@ -121,13 +121,6 @@ export default function HomeScreen() {
 
   const handleImportClipboard = () => {
     if (!clipboardBanner) return;
-    if (!hasTarjetas) {
-      webAlert('Agrega una tarjeta', 'Primero necesitas agregar al menos una tarjeta.', [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Agregar', onPress: () => router.push('/tarjeta/nueva') },
-      ]);
-      return;
-    }
     hapticImpact('medium');
     dismissBanner();
     router.push({ pathname: '/gasto/importar', params: { clipText: clipboardBanner.text } });
@@ -251,17 +244,6 @@ export default function HomeScreen() {
       <Pressable
         style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
         onPress={() => {
-          if (!hasTarjetas) {
-            webAlert(
-              'Agrega una tarjeta',
-              'Primero necesitas agregar al menos una tarjeta.',
-              [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Agregar tarjeta', onPress: () => router.push('/tarjeta/nueva') },
-              ]
-            );
-            return;
-          }
           hapticImpact('medium');
           router.push('/gasto/sync');
         }}

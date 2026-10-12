@@ -14,8 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticSuccess } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { CategoriaSelector } from '../../components/CategoriaSelector';
-import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
-import { Tarjeta, Categoria } from '../../types';
+import { getCategorias, insertGasto, findOrCreateTarjeta } from '../../db/database';
+import { Categoria } from '../../types';
 import { Platform } from 'react-native';
 
 const EMAIL_FORWARD_ADDRESS = 'import@gastos.saynet.ec';
@@ -67,16 +67,13 @@ export default function SyncScreen() {
   const [serverGastos, setServerGastos] = useState<ServerGasto[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
-  const [tarjetas, setTarjetas] = useState<Tarjeta[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [imported, setImported] = useState(0);
   const [processing, setProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const init = useCallback(async () => {
-    const [t, c] = await Promise.all([getTarjetas(), getCategorias()]);
-    setTarjetas(t);
-    setCategorias(c);
+    setCategorias(await getCategorias());
   }, []);
 
   useEffect(() => { init(); }, [init]);
@@ -128,10 +125,6 @@ export default function SyncScreen() {
     const selectedGastos = serverGastos.filter((g) => selected.has(g.id));
 
     for (const gasto of selectedGastos) {
-      const matchedTarjeta = gasto.ultimos4
-        ? tarjetas.find((t) => t.ultimos4 === gasto.ultimos4)
-        : null;
-
       const autoCategory = gasto.comercio
         ? guessCategory(gasto.comercio, categorias)
         : null;
@@ -141,13 +134,16 @@ export default function SyncScreen() {
         : null;
 
       try {
+        const tarjetaId = await findOrCreateTarjeta(gasto.banco, gasto.ultimos4);
         await insertGasto({
           monto: Number(gasto.monto),
           fecha: gasto.fecha || new Date().toISOString().split('T')[0],
           nota: gasto.banco ? `${gasto.banco} - ${gasto.tipo || 'email'}` : undefined,
           comercio: gasto.comercio || undefined,
-          tarjetaId: matchedTarjeta?.id || tarjetas[0]?.id,
-          categoriaId: serverCategory || autoCategory || categoriaId || categorias[categorias.length - 1]?.id,
+          tarjetaId,
+          categoriaId: serverCategory || autoCategory || categoriaId
+            || categorias.find((c) => c.nombre === 'Otro')?.id
+            || categorias[categorias.length - 1]?.id,
         });
         count++;
       } catch {}
