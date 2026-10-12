@@ -231,7 +231,7 @@ export default function HomeScreen() {
         style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
         onPress={() => {
           hapticImpact('medium');
-          router.push('/gasto/sync');
+          router.push('/gasto/conectar');
         }}
       >
         <Ionicons name="mail-open" size={22} color={theme.primary} />
