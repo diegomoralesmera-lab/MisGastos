@@ -16,8 +16,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticSuccess } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { CategoriaSelector } from '../../components/CategoriaSelector';
-import { getTarjetas, getCategorias, insertGasto } from '../../db/database';
+import { getTarjetas, getCategorias, insertGasto, findOrCreateTarjeta } from '../../db/database';
 import { Tarjeta, Categoria } from '../../types';
+
+function webAlert(title: string, message?: string) {
+  if (Platform.OS === 'web') {
+    window.alert(message ? `${title}\n${message}` : title);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 
 export default function NuevoGastoScreen() {
   const theme = useTheme();
@@ -31,7 +39,11 @@ export default function NuevoGastoScreen() {
 
   useEffect(() => {
     (async () => {
-      const [t, c] = await Promise.all([getTarjetas(), getCategorias()]);
+      let [t, c] = await Promise.all([getTarjetas(), getCategorias()]);
+      if (t.length === 0) {
+        await findOrCreateTarjeta('Efectivo', null);
+        t = await getTarjetas();
+      }
       setTarjetas(t);
       setCategorias(c);
       if (t.length > 0) setTarjetaId(t[0].id);
@@ -40,15 +52,15 @@ export default function NuevoGastoScreen() {
 
   const handleSave = async () => {
     if (!monto || parseFloat(monto) <= 0) {
-      Alert.alert('Ingresa un monto');
+      webAlert('Ingresa un monto');
       return;
     }
     if (!tarjetaId) {
-      Alert.alert('Selecciona una tarjeta');
+      webAlert('Selecciona una tarjeta');
       return;
     }
     if (!categoriaId) {
-      Alert.alert('Selecciona una categoria');
+      webAlert('Selecciona una categoria');
       return;
     }
 
@@ -66,7 +78,7 @@ export default function NuevoGastoScreen() {
       hapticSuccess();
       router.back();
     } catch {
-      Alert.alert('Error', 'No se pudo guardar el gasto');
+      webAlert('Error', 'No se pudo guardar el gasto');
     } finally {
       setSaving(false);
     }

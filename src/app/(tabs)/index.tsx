@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticImpact } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { GastoItem } from '../../components/GastoItem';
-import { getGastosMes, getTotalMes, deleteGasto, getTarjetas } from '../../db/database';
+import { getGastosMes, getTotalMes, deleteGasto } from '../../db/database';
 import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
 import { Platform } from 'react-native';
@@ -48,20 +48,17 @@ export default function HomeScreen() {
   const [gastos, setGastos] = useState<GastoConDetalles[]>([]);
   const [total, setTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [hasTarjetas, setHasTarjetas] = useState(true);
   const [clipboardBanner, setClipboardBanner] = useState<{ text: string; comercio: string; monto: number } | null>(null);
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const lastClipRef = useRef('');
 
   const loadData = useCallback(async () => {
-    const [gastosData, totalData, tarjetas] = await Promise.all([
+    const [gastosData, totalData] = await Promise.all([
       getGastosMes(mes, ano),
       getTotalMes(mes, ano),
-      getTarjetas(),
     ]);
     setGastos(gastosData);
     setTotal(totalData);
-    setHasTarjetas(tarjetas.length > 0);
   }, [mes, ano]);
 
   useFocusEffect(
@@ -127,17 +124,6 @@ export default function HomeScreen() {
   };
 
   const handleNuevoGasto = () => {
-    if (!hasTarjetas) {
-      webAlert(
-        'Agrega una tarjeta',
-        'Primero necesitas agregar al menos una tarjeta para registrar gastos.',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Agregar tarjeta', onPress: () => router.push('/tarjeta/nueva') },
-        ]
-      );
-      return;
-    }
     hapticImpact('medium');
     router.push('/gasto/nuevo');
   };
