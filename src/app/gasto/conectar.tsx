@@ -27,7 +27,18 @@ import {
   EmailGasto,
   buscarGastosEnCorreo,
   markImported,
+  getImportedIds,
 } from '../../utils/outlookMail';
+import {
+  GOOGLE_CLIENT_ID,
+  isGoogleConnected,
+  getGoogleEmail,
+  startGoogleLogin,
+  completeGoogleLogin,
+  getGoogleAccessToken,
+  disconnectGoogle,
+} from '../../utils/googleAuth';
+import { buscarGastosEnGmail } from '../../utils/gmailMail';
 
 type Step = 'landing' | 'auth' | 'searching' | 'results' | 'importing' | 'done';
 type Rango = 'mes' | 'tres';
@@ -69,49 +80,101 @@ export default function ConectarScreen() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [imported, setImported] = useState(0);
   const [rango, setRango] = useState<Rango>('mes');
-  const [email, setEmail] = useState<string | null>(null);
+  const [msEmail, setMsEmail] = useState<string | null>(null);
+  const [gEmail, setGEmail] = useState<string | null>(null);
 
   const buscar = useCallback(async (r: Rango) => {
     setStep('searching');
     setError('');
+    const desde = rangoDesde(r);
+    const found: EmailGasto[] = [];
+    const seen = new Set<string>();
+    const errores: string[] = [];
+    let conectado = false;
+
+    // Outlook / Hotmail
     try {
       const token = await getAccessToken();
-      if (!token) {
-        setEmail(null);
-        setStep('landing');
-        setError('La sesion expiro. Conecta tu correo de nuevo.');
-        return;
+      if (token) {
+        conectado = true;
+        for (const g of await buscarGastosEnCorreo(token, desde)) {
+          if (!seen.has(g.messageId)) {
+            seen.add(g.messageId);
+            found.push(g);
+          }
+        }
+      } else {
+        setMsEmail(null);
       }
-      const found = await buscarGastosEnCorreo(token, rangoDesde(r));
-      setGastos(found);
-      setSelected(new Set(found.map((g) => g.messageId)));
-      setStep('results');
     } catch (err: any) {
       if (err?.message === 'UNAUTHORIZED') {
         disconnect();
-        setEmail(null);
-        setStep('landing');
-        setError('La sesion expiro. Conecta tu correo de nuevo.');
+        setMsEmail(null);
+        errores.push('La sesion de Outlook expiro, conectala de nuevo.');
       } else {
-        setError(err?.message || 'No se pudo leer el correo');
-        setStep('results');
+        errores.push('Outlook: ' + (err?.message || 'no se pudo leer'));
       }
     }
+
+    // Gmail
+    try {
+      const token = await getGoogleAccessToken();
+      if (token) {
+        conectado = true;
+        const skip = getImportedIds();
+        for (const g of await buscarGastosEnGmail(token, desde, skip)) {
+          if (!seen.has(g.messageId)) {
+            seen.add(g.messageId);
+            found.push(g);
+          }
+        }
+      } else {
+        setGEmail(null);
+      }
+    } catch (err: any) {
+      if (err?.message === 'UNAUTHORIZED') {
+        disconnectGoogle();
+        setGEmail(null);
+        errores.push('La sesion de Gmail expiro, conectala de nuevo.');
+      } else {
+        errores.push('Gmail: ' + (err?.message || 'no se pudo leer'));
+      }
+    }
+
+    if (!conectado && errores.length === 0) {
+      setStep('landing');
+      setError('Conecta tu correo para buscar gastos.');
+      return;
+    }
+
+    found.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+    setGastos(found);
+    setSelected(new Set(found.map((g) => g.messageId)));
+    setError(errores.join(' '));
+    setStep(conectado ? 'results' : 'landing');
   }, []);
 
   useEffect(() => {
     (async () => {
       setCategorias(await getCategorias());
 
-      // Volviendo del login de Microsoft con ?code=
+      // Volviendo del login de Microsoft o Google con ?code=
       const params = new URLSearchParams(window.location.search);
       const code = params.get('code');
+      const state = params.get('state');
       if (code) {
         setStep('auth');
         window.history.replaceState({}, '', window.location.pathname);
         try {
-          await completeLogin(code);
-          setEmail(getConnectedEmail());
+          if (state === 'google') {
+            await completeGoogleLogin(code);
+            setGEmail(getGoogleEmail());
+          } else {
+            await completeLogin(code);
+            setMsEmail(getConnectedEmail());
+          }
+          if (isConnected()) setMsEmail(getConnectedEmail());
+          if (isGoogleConnected()) setGEmail(getGoogleEmail());
           await buscar('mes');
         } catch (err: any) {
           setError(err?.message || 'No se pudo conectar');
@@ -119,13 +182,14 @@ export default function ConectarScreen() {
         }
         return;
       }
-      if (params.get('error_description')) {
+      if (params.get('error_description') || params.get('error')) {
         setError(params.get('error_description') || 'Login cancelado');
         window.history.replaceState({}, '', window.location.pathname);
       }
 
-      if (isConnected()) {
-        setEmail(getConnectedEmail());
+      if (isConnected()) setMsEmail(getConnectedEmail());
+      if (isGoogleConnected()) setGEmail(getGoogleEmail());
+      if (isConnected() || isGoogleConnected()) {
         await buscar('mes');
       }
     })();
@@ -138,6 +202,14 @@ export default function ConectarScreen() {
       return;
     }
     await startLogin();
+  };
+
+  const handleConectarGoogle = () => {
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Falta configurar la conexion con Google (client ID).');
+      return;
+    }
+    startGoogleLogin();
   };
 
   const toggleSelect = (id: string) => {
@@ -180,11 +252,20 @@ export default function ConectarScreen() {
     hapticSuccess();
   };
 
-  const handleDesconectar = () => {
-    disconnect();
-    setEmail(null);
-    setGastos([]);
-    setStep('landing');
+  const handleDesconectar = (provider: 'ms' | 'google') => {
+    if (provider === 'ms') {
+      disconnect();
+      setMsEmail(null);
+    } else {
+      disconnectGoogle();
+      setGEmail(null);
+    }
+    if (!isConnected() && !isGoogleConnected()) {
+      setGastos([]);
+      setStep('landing');
+    } else {
+      buscar(rango);
+    }
   };
 
   const formatDate = (iso?: string) => {
@@ -228,14 +309,15 @@ export default function ConectarScreen() {
               Conecta tu correo{'\n'}y listo
             </Text>
             <Text style={[styles.landingSubtitle, { color: theme.textSecondary }]}>
-              Inicia sesion con tu cuenta de Outlook o Hotmail y la app leera los
-              correos de tu banco para registrar tus gastos automaticamente.
+              Inicia sesion con tu cuenta de Outlook, Hotmail o Gmail y la app leera
+              los correos de tu banco para registrar tus gastos automaticamente.
+              Puedes conectar varias cuentas.
             </Text>
             <View style={styles.featureList}>
               {[
                 { icon: 'flash', text: 'Detecta los gastos del mes solos' },
                 { icon: 'card', text: 'Crea las tarjetas automaticamente' },
-                { icon: 'shield-checkmark', text: 'Tu clave se ingresa solo en Microsoft' },
+                { icon: 'shield-checkmark', text: 'Tu clave se ingresa solo en Microsoft o Google' },
                 { icon: 'eye-off', text: 'Solo permiso de lectura de correo' },
               ].map((f) => (
                 <View key={f.icon} style={styles.featureItem}>
@@ -260,16 +342,33 @@ export default function ConectarScreen() {
 
         {step === 'results' && (
           <>
-            {email && (
-              <View style={[styles.accountRow, { backgroundColor: theme.surface }]}>
-                <Ionicons name="person-circle" size={20} color={theme.primary} />
-                <Text style={[styles.accountText, { color: theme.textSecondary }]} numberOfLines={1}>
-                  {email}
+            {([
+              { provider: 'ms' as const, email: msEmail, icon: 'logo-microsoft' as const },
+              { provider: 'google' as const, email: gEmail, icon: 'logo-google' as const },
+            ])
+              .filter((a) => a.email)
+              .map((a) => (
+                <View key={a.provider} style={[styles.accountRow, { backgroundColor: theme.surface }]}>
+                  <Ionicons name={a.icon} size={18} color={theme.primary} />
+                  <Text style={[styles.accountText, { color: theme.textSecondary }]} numberOfLines={1}>
+                    {a.email}
+                  </Text>
+                  <Pressable onPress={() => handleDesconectar(a.provider)} hitSlop={8}>
+                    <Text style={[styles.disconnectText, { color: theme.danger }]}>Salir</Text>
+                  </Pressable>
+                </View>
+              ))}
+
+            {(!msEmail || !gEmail) && (
+              <Pressable
+                style={[styles.addAccountRow, { borderColor: theme.border }]}
+                onPress={!msEmail ? handleConectar : handleConectarGoogle}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={theme.primary} />
+                <Text style={[styles.addAccountText, { color: theme.primary }]}>
+                  {!msEmail ? 'Conectar Outlook / Hotmail' : 'Conectar Gmail'}
                 </Text>
-                <Pressable onPress={handleDesconectar} hitSlop={8}>
-                  <Text style={[styles.disconnectText, { color: theme.danger }]}>Salir</Text>
-                </Pressable>
-              </View>
+              </Pressable>
             )}
 
             <View style={styles.rangoRow}>
@@ -396,6 +495,13 @@ export default function ConectarScreen() {
               <Text style={styles.primaryBtnText}>Conectar Outlook / Hotmail</Text>
             </Pressable>
             <Pressable
+              style={[styles.primaryBtn, { backgroundColor: '#EA4335' }]}
+              onPress={handleConectarGoogle}
+            >
+              <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+              <Text style={styles.primaryBtnText}>Conectar Gmail</Text>
+            </Pressable>
+            <Pressable
               style={[styles.secondaryBtn, { borderColor: theme.border }]}
               onPress={() => router.replace('/gasto/sync')}
             >
@@ -502,6 +608,19 @@ const styles = StyleSheet.create({
   },
   accountText: { fontSize: 13, flex: 1 },
   disconnectText: { fontSize: 13, fontWeight: '600' },
+  addAccountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+  },
+  addAccountText: { fontSize: 13, fontWeight: '600' },
   rangoRow: {
     flexDirection: 'row',
     gap: 8,

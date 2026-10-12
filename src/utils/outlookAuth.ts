@@ -81,6 +81,7 @@ export async function startLogin(): Promise<void> {
     code_challenge: challenge,
     code_challenge_method: 'S256',
     prompt: 'select_account',
+    state: 'ms',
   });
   window.location.href = `${AUTHORITY}/oauth2/v2.0/authorize?${params.toString()}`;
 }
