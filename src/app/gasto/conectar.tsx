@@ -49,9 +49,10 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
   Supermercado: ['supermaxi', 'megamaxi', 'tia', 'coral', 'supermercado', 'market', 'gran aki'],
   Salud: ['farmacia', 'hospital', 'clinica', 'medic', 'dental', 'fybeca', 'sana sana'],
   Educacion: ['school', 'colegio', 'universidad', 'homeschool', 'educacion', 'curso', 'academy'],
-  Servicios: ['electrica', 'agua', 'telefon', 'internet', 'cnt', 'claro', 'movistar'],
+  Servicios: ['electrica', 'agua', 'telefon', 'internet', 'cnt', 'claro', 'movistar', 'hetzner', 'vercel', 'aws', 'hosting', 'dominio', 'domain'],
   Hogar: ['ferreteria', 'mueble', 'hogar', 'casa', 'home'],
   Viajes: ['hotel', 'vuelo', 'flight', 'airbnb', 'booking', 'viaje'],
+  Suscripciones: ['claude', 'anthropic', 'openai', 'chatgpt', 'netflix', 'spotify', 'github', 'subscription', 'suscripcion'],
 };
 
 function guessCategory(comercio: string, categorias: Categoria[]): number | null {

@@ -2,6 +2,7 @@
 // extrae los gastos con el mismo parser que usa el resto de la app.
 
 import { parseNotification, ParsedTransaction } from './bankParser';
+import { parseReceipt } from './receiptParser';
 
 export interface EmailGasto extends ParsedTransaction {
   messageId: string;
@@ -19,6 +20,10 @@ const SEARCH_TERMS = [
   'austro',
   'diners',
   'banco internacional',
+  'receipt',
+  'invoice',
+  'factura',
+  'recibo',
 ];
 
 const IMPORTED_KEY = 'misgastos_msgids_importados';
@@ -66,7 +71,7 @@ export async function buscarGastosEnCorreo(
   for (const term of SEARCH_TERMS) {
     const url =
       `${GRAPH}/me/messages?$search="${encodeURIComponent(term)}"` +
-      `&$top=25&$select=id,subject,receivedDateTime,body`;
+      `&$top=25&$select=id,subject,receivedDateTime,body,from`;
     let res: Response;
     try {
       res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -82,7 +87,14 @@ export async function buscarGastosEnCorreo(
       if (!msg.receivedDateTime || new Date(msg.receivedDateTime) < desde) continue;
 
       const text = htmlToText(msg.body?.content || '');
-      const parsed = parseNotification(`${msg.subject || ''}\n${text}`);
+      const parsed =
+        parseNotification(`${msg.subject || ''}\n${text}`) ||
+        parseReceipt(
+          msg.subject || '',
+          text,
+          msg.from?.emailAddress?.name,
+          msg.from?.emailAddress?.address
+        );
       if (parsed && parsed.monto > 0) {
         found.set(msg.id, {
           ...parsed,
