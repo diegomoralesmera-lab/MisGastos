@@ -229,3 +229,10 @@ export async function deleteGasto(id: number): Promise<void> {
   data.gastos = data.gastos.filter((g) => g.id !== id);
   persist();
 }
+
+export async function deleteGastos(ids: number[]): Promise<void> {
+  const data = getData();
+  const set = new Set(ids);
+  data.gastos = data.gastos.filter((g) => !set.has(g.id));
+  persist();
+}

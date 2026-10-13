@@ -1,13 +1,17 @@
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { GastoConDetalles } from '../types';
 import { useTheme } from '../hooks/useColorScheme';
 
 interface Props {
   gasto: GastoConDetalles;
   onLongPress?: () => void;
+  onPress?: () => void;
+  selectable?: boolean;
+  selected?: boolean;
 }
 
-export function GastoItem({ gasto, onLongPress }: Props) {
+export function GastoItem({ gasto, onLongPress, onPress, selectable, selected }: Props) {
   const theme = useTheme();
   const fechaStr = (gasto.fecha || '').split('T')[0];
   const fecha = new Date(fechaStr + 'T12:00:00');
@@ -21,15 +25,25 @@ export function GastoItem({ gasto, onLongPress }: Props) {
   return (
     <Pressable
       onLongPress={onLongPress}
+      onPress={onPress}
       style={({ pressed }) => [
         styles.container,
         {
           backgroundColor: theme.surface,
-          borderColor: theme.border,
+          borderColor: selectable && selected ? theme.primary : theme.border,
+          borderWidth: selectable && selected ? 1.5 : StyleSheet.hairlineWidth,
           opacity: pressed ? 0.85 : 1,
         },
       ]}
     >
+      {selectable && (
+        <Ionicons
+          name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+          size={22}
+          color={selected ? theme.primary : theme.textTertiary}
+          style={styles.checkIcon}
+        />
+      )}
       <View style={[styles.iconCircle, { backgroundColor: gasto.categoriaColor + '1A' }]}>
         <Text style={styles.icon}>{gasto.categoriaIcono}</Text>
       </View>
@@ -75,6 +89,9 @@ const styles = StyleSheet.create({
     marginVertical: 3,
     borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth,
+  },
+  checkIcon: {
+    marginRight: 10,
   },
   iconCircle: {
     width: 38,

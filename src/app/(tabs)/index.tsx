@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticImpact } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { GastoItem } from '../../components/GastoItem';
-import { getGastosMes, getTotalMes, deleteGasto } from '../../db/database';
+import { getGastosMes, getTotalMes, deleteGasto, deleteGastos } from '../../db/database';
 import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
 import { Platform } from 'react-native';
@@ -48,6 +48,8 @@ export default function HomeScreen() {
   const [gastos, setGastos] = useState<GastoConDetalles[]>([]);
   const [total, setTotal] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [clipboardBanner, setClipboardBanner] = useState<{ text: string; comercio: string; monto: number } | null>(null);
   const bannerAnim = useRef(new Animated.Value(0)).current;
   const lastClipRef = useRef('');
@@ -128,6 +130,46 @@ export default function HomeScreen() {
     router.push('/gasto/nuevo');
   };
 
+  const toggleSelectMode = () => {
+    hapticImpact('light');
+    setSelectedIds(new Set());
+    setSelectMode(!selectMode);
+  };
+
+  const toggleSelected = (id: number) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const selectAll = () => {
+    if (selectedIds.size === gastos.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(gastos.map((g) => g.id)));
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    hapticImpact('light');
+    webAlert(
+      `Eliminar ${selectedIds.size} gasto${selectedIds.size !== 1 ? 's' : ''}`,
+      'Esta accion no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteGastos([...selectedIds]);
+            setSelectedIds(new Set());
+            setSelectMode(false);
+            loadData();
+          },
+        },
+      ]
+    );
+  };
+
   const handleDeleteGasto = (gasto: GastoConDetalles) => {
     hapticImpact('light');
     webAlert(
@@ -151,6 +193,13 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: theme.text }]}>Mis Gastos</Text>
+        {gastos.length > 0 && (
+          <Pressable onPress={toggleSelectMode} hitSlop={10}>
+            <Text style={[styles.selectBtn, { color: theme.primary }]}>
+              {selectMode ? 'Cancelar' : 'Seleccionar'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       <View style={[styles.monthSelector, { backgroundColor: theme.surface }]}>
@@ -210,7 +259,13 @@ export default function HomeScreen() {
         data={gastos}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => (
-          <GastoItem gasto={item} onLongPress={() => handleDeleteGasto(item)} />
+          <GastoItem
+            gasto={item}
+            selectable={selectMode}
+            selected={selectedIds.has(item.id)}
+            onPress={selectMode ? () => toggleSelected(item.id) : undefined}
+            onLongPress={selectMode ? undefined : () => handleDeleteGasto(item)}
+          />
         )}
         contentContainerStyle={styles.list}
         refreshControl={
@@ -229,21 +284,51 @@ export default function HomeScreen() {
         }
       />
 
-      <Pressable
-        style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
-        onPress={() => {
-          hapticImpact('medium');
-          router.push('/gasto/conectar');
-        }}
-      >
-        <Ionicons name="mail-open" size={18} color={theme.primary} />
-      </Pressable>
-      <Pressable
-        style={[styles.fab, { backgroundColor: theme.primary }]}
-        onPress={handleNuevoGasto}
-      >
-        <Ionicons name="add" size={26} color="#FFFFFF" />
-      </Pressable>
+      {!selectMode && (
+        <>
+          <Pressable
+            style={[styles.fabImport, { backgroundColor: theme.surface, borderColor: theme.primary }]}
+            onPress={() => {
+              hapticImpact('medium');
+              router.push('/gasto/conectar');
+            }}
+          >
+            <Ionicons name="mail-open" size={18} color={theme.primary} />
+          </Pressable>
+          <Pressable
+            style={[styles.fab, { backgroundColor: theme.primary }]}
+            onPress={handleNuevoGasto}
+          >
+            <Ionicons name="add" size={26} color="#FFFFFF" />
+          </Pressable>
+        </>
+      )}
+
+      {selectMode && (
+        <View style={[styles.selectBar, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Pressable onPress={selectAll} hitSlop={8} style={styles.selectAllBtn}>
+            <Ionicons
+              name={selectedIds.size === gastos.length ? 'checkmark-circle' : 'ellipse-outline'}
+              size={20}
+              color={theme.primary}
+            />
+            <Text style={[styles.selectAllText, { color: theme.primary }]}>Todos</Text>
+          </Pressable>
+          <Text style={[styles.selectCount, { color: theme.textSecondary }]}>
+            {selectedIds.size} seleccionado{selectedIds.size !== 1 ? 's' : ''}
+          </Text>
+          <Pressable
+            onPress={handleDeleteSelected}
+            style={[
+              styles.deleteBtn,
+              { backgroundColor: theme.danger, opacity: selectedIds.size === 0 ? 0.4 : 1 },
+            ]}
+          >
+            <Ionicons name="trash" size={15} color="#FFFFFF" />
+            <Text style={styles.deleteBtnText}>Eliminar</Text>
+          </Pressable>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -253,9 +338,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 4,
+  },
+  selectBtn: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   title: {
     fontSize: 24,
@@ -370,6 +462,49 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  selectBar: {
+    position: 'absolute',
+    bottom: 96,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  selectAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  selectAllText: {
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  selectCount: {
+    fontSize: 12.5,
+  },
+  deleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  deleteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '600',
   },
   fab: {
     position: 'absolute',
