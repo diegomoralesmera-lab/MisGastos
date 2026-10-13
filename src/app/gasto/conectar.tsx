@@ -313,21 +313,28 @@ export default function ConectarScreen() {
     const existentes = await getAllGastos();
     for (const g of elegidos) {
       try {
-        // Si ya existe, se reemplaza (nunca se duplica). Referencias distintas
-        // significan transacciones distintas; sin referencias decide monto+fecha.
+        // Si ya existe, se reemplaza (nunca se duplica):
+        // 1) mismo correo de origen  2) misma referencia  3) monto+fecha cercana
         const dup = existentes.find((e) => {
+          if (e.emailId && e.emailId === g.messageId) return true;
           if (g.referencia && e.referencia) return e.referencia === g.referencia;
           return Math.abs(e.monto - g.monto) < 0.005 && diffDias(e.fecha, g.fecha) <= 2;
         });
-        if (dup) await deleteGasto(dup.id);
+        if (dup) {
+          await deleteGasto(dup.id);
+          const idx = existentes.indexOf(dup);
+          if (idx >= 0) existentes.splice(idx, 1);
+        }
 
         const tarjetaId = await findOrCreateTarjeta(g.banco, g.ultimos4);
+        const fechaFinal = g.fecha || new Date().toISOString().split('T')[0];
         await insertGasto({
           monto: g.monto,
-          fecha: g.fecha || new Date().toISOString().split('T')[0],
+          fecha: fechaFinal,
           nota: g.banco ? `${g.banco} - ${g.tipo || 'email'}` : g.subject || undefined,
           comercio: g.comercio || undefined,
           referencia: g.referencia,
+          emailId: g.messageId,
           tarjetaId,
           categoriaId:
             (g.comercio ? guessCategory(g.comercio, categorias) : null) ||
@@ -335,6 +342,17 @@ export default function ConectarScreen() {
             categorias[categorias.length - 1]?.id,
         });
         count++;
+        // Visible para el chequeo de duplicados del resto del lote
+        existentes.push({
+          id: -count,
+          monto: g.monto,
+          fecha: fechaFinal,
+          referencia: g.referencia,
+          emailId: g.messageId,
+          tarjetaId,
+          categoriaId: 0,
+          createdAt: '',
+        });
       } catch {}
     }
     markImported(elegidos.map((g) => g.messageId));

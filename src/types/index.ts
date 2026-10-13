@@ -23,6 +23,7 @@ export interface Gasto {
   nota?: string;
   comercio?: string;
   referencia?: string;
+  emailId?: string; // id del correo del que salio: un correo = un gasto, siempre
   tarjetaId: number;
   categoriaId: number;
   createdAt: string;
