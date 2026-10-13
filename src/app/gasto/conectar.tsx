@@ -67,6 +67,32 @@ function guessCategory(comercio: string, categorias: Categoria[]): number | null
   return null;
 }
 
+function diffDias(a?: string, b?: string): number {
+  if (!a || !b) return 99;
+  const da = new Date(a + 'T12:00:00').getTime();
+  const db = new Date(b + 'T12:00:00').getTime();
+  if (isNaN(da) || isNaN(db)) return 99;
+  return Math.abs(da - db) / 86400000;
+}
+
+// Mismo monto con fechas cercanas: factura del servicio + cobro del banco
+// suelen ser el mismo gasto. Se prefiere la version del banco.
+function detectarDuplicados(lista: EmailGasto[]): Set<string> {
+  const dups = new Set<string>();
+  for (let i = 0; i < lista.length; i++) {
+    for (let j = i + 1; j < lista.length; j++) {
+      const a = lista[i];
+      const b = lista[j];
+      if (dups.has(a.messageId) || dups.has(b.messageId)) continue;
+      if (Math.abs(a.monto - b.monto) < 0.01 && diffDias(a.fecha, b.fecha) <= 2) {
+        const recibo = !a.banco ? a : b;
+        dups.add(recibo.messageId);
+      }
+    }
+  }
+  return dups;
+}
+
 function rangoDesde(rango: Rango): Date {
   const now = new Date();
   if (rango === 'mes') return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -82,6 +108,7 @@ export default function ConectarScreen() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [imported, setImported] = useState(0);
   const [rango, setRango] = useState<Rango>('mes');
+  const [posiblesDup, setPosiblesDup] = useState<Set<string>>(new Set());
   const [msEmail, setMsEmail] = useState<string | null>(null);
   const [gEmail, setGEmail] = useState<string | null>(null);
 
@@ -150,8 +177,10 @@ export default function ConectarScreen() {
     }
 
     found.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+    const dups = detectarDuplicados(found);
+    setPosiblesDup(dups);
     setGastos(found);
-    setSelected(new Set(found.map((g) => g.messageId)));
+    setSelected(new Set(found.filter((g) => !dups.has(g.messageId)).map((g) => g.messageId)));
     setError(errores.join(' '));
     setStep(conectado ? 'results' : 'landing');
   }, []);
@@ -467,6 +496,13 @@ export default function ConectarScreen() {
                           <View style={[styles.bankChip, { backgroundColor: theme.primary + '20' }]}>
                             <Text style={[styles.bankChipText, { color: theme.primary }]}>
                               {g.banco}
+                            </Text>
+                          </View>
+                        )}
+                        {posiblesDup.has(g.messageId) && (
+                          <View style={[styles.bankChip, { backgroundColor: '#B4530920' }]}>
+                            <Text style={[styles.bankChipText, { color: '#B45309' }]}>
+                              Posible duplicado
                             </Text>
                           </View>
                         )}
