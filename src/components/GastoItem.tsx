@@ -70,7 +70,7 @@ export function GastoItem({ gasto, onLongPress, onPress, selectable, selected }:
       </View>
 
       <View style={styles.right}>
-        <Text style={[styles.monto, { color: theme.text }]}>
+        <Text style={[styles.monto, { color: theme.danger }]}>
           -${gasto.monto.toFixed(2)}
         </Text>
         <Text style={[styles.fecha, { color: theme.textTertiary }]}>{fechaCorta}</Text>

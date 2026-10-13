@@ -3,7 +3,7 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
+  SectionList,
   Pressable,
   Alert,
   RefreshControl,
@@ -15,7 +15,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticImpact } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { GastoItem } from '../../components/GastoItem';
-import { getGastosMes, getTotalMes, deleteGasto, deleteGastos } from '../../db/database';
+import { getGastosMes, getTotalMes, getResumenMes, deleteGasto, deleteGastos } from '../../db/database';
+import { ResumenCategoria } from '../../types';
 import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
 import { Platform } from 'react-native';
@@ -47,6 +48,8 @@ export default function HomeScreen() {
   const [ano, setAno] = useState(now.getFullYear());
   const [gastos, setGastos] = useState<GastoConDetalles[]>([]);
   const [total, setTotal] = useState(0);
+  const [totalAnterior, setTotalAnterior] = useState(0);
+  const [resumen, setResumen] = useState<ResumenCategoria[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -55,12 +58,18 @@ export default function HomeScreen() {
   const lastClipRef = useRef('');
 
   const loadData = useCallback(async () => {
-    const [gastosData, totalData] = await Promise.all([
+    const mesPrev = mes === 1 ? 12 : mes - 1;
+    const anoPrev = mes === 1 ? ano - 1 : ano;
+    const [gastosData, totalData, prevData, resumenData] = await Promise.all([
       getGastosMes(mes, ano),
       getTotalMes(mes, ano),
+      getTotalMes(mesPrev, anoPrev),
+      getResumenMes(mes, ano),
     ]);
     setGastos(gastosData);
     setTotal(totalData);
+    setTotalAnterior(prevData);
+    setResumen(resumenData);
   }, [mes, ano]);
 
   useFocusEffect(
@@ -189,6 +198,36 @@ export default function HomeScreen() {
     );
   };
 
+  // Gastos agrupados por dia, como las apps de finanzas del mercado
+  const secciones = (() => {
+    const grupos = new Map<string, GastoConDetalles[]>();
+    for (const g of gastos) {
+      const k = (g.fecha || '').split('T')[0];
+      if (!grupos.has(k)) grupos.set(k, []);
+      grupos.get(k)!.push(g);
+    }
+    const hoy = new Date().toISOString().split('T')[0];
+    const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    return [...grupos.entries()].map(([fecha, data]) => {
+      const d = new Date(fecha + 'T12:00:00');
+      const titulo =
+        fecha === hoy
+          ? 'Hoy'
+          : fecha === ayer
+            ? 'Ayer'
+            : isNaN(d.getTime())
+              ? fecha
+              : d.toLocaleDateString('es-EC', { weekday: 'long', day: 'numeric', month: 'short' });
+      return {
+        title: titulo.charAt(0).toUpperCase() + titulo.slice(1),
+        totalDia: data.reduce((s, g) => s + g.monto, 0),
+        data,
+      };
+    });
+  })();
+
+  const delta = totalAnterior > 0 ? ((total - totalAnterior) / totalAnterior) * 100 : null;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
@@ -215,13 +254,46 @@ export default function HomeScreen() {
       </View>
 
       <View style={[styles.totalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        <Text style={[styles.totalLabel, { color: theme.textTertiary }]}>TOTAL DEL MES</Text>
+        <Text style={[styles.totalLabel, { color: theme.textTertiary }]}>
+          GASTADO EN {MESES[mes - 1].toUpperCase()}
+        </Text>
         <Text style={[styles.totalAmount, { color: theme.text }]}>${total.toFixed(2)}</Text>
-        <View style={[styles.totalBadge, { backgroundColor: theme.primaryLight }]}>
-          <Text style={[styles.totalCount, { color: theme.primary }]}>
-            {gastos.length} {gastos.length === 1 ? 'gasto' : 'gastos'}
-          </Text>
-        </View>
+
+        {delta !== null && (
+          <View style={styles.deltaRow}>
+            <Ionicons
+              name={delta > 0 ? 'arrow-up' : 'arrow-down'}
+              size={12}
+              color={delta > 0 ? theme.danger : theme.accent}
+            />
+            <Text style={[styles.deltaText, { color: delta > 0 ? theme.danger : theme.accent }]}>
+              {Math.abs(delta).toFixed(0)}% vs {MESES[mes === 1 ? 11 : mes - 2].toLowerCase()}
+            </Text>
+          </View>
+        )}
+
+        {resumen.length > 0 && (
+          <>
+            <View style={styles.stackBar}>
+              {resumen.map((cat) => (
+                <View
+                  key={cat.categoriaId}
+                  style={[styles.stackSeg, { backgroundColor: cat.color, flex: Math.max(cat.porcentaje, 2) }]}
+                />
+              ))}
+            </View>
+            <View style={styles.legendRow}>
+              {resumen.slice(0, 3).map((cat) => (
+                <View key={cat.categoriaId} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                  <Text style={[styles.legendText, { color: theme.textSecondary }]} numberOfLines={1}>
+                    {cat.nombre} {cat.porcentaje.toFixed(0)}%
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
       </View>
 
       {clipboardBanner && (
@@ -255,9 +327,10 @@ export default function HomeScreen() {
         </Animated.View>
       )}
 
-      <FlatList
-        data={gastos}
+      <SectionList
+        sections={secciones}
         keyExtractor={(item) => item.id.toString()}
+        stickySectionHeadersEnabled={false}
         renderItem={({ item }) => (
           <GastoItem
             gasto={item}
@@ -266,6 +339,16 @@ export default function HomeScreen() {
             onPress={selectMode ? () => toggleSelected(item.id) : undefined}
             onLongPress={selectMode ? undefined : () => handleDeleteGasto(item)}
           />
+        )}
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+              {section.title}
+            </Text>
+            <Text style={[styles.sectionTotal, { color: theme.textTertiary }]}>
+              ${section.totalDia.toFixed(2)}
+            </Text>
+          </View>
         )}
         contentContainerStyle={styles.list}
         refreshControl={
@@ -389,15 +472,63 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontVariant: ['tabular-nums'],
   },
-  totalBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 10,
+  deltaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 4,
+  },
+  deltaText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  stackBar: {
+    flexDirection: 'row',
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    alignSelf: 'stretch',
+    marginHorizontal: 18,
+    marginTop: 14,
+    gap: 2,
+  },
+  stackSeg: {
+    borderRadius: 4,
+  },
+  legendRow: {
+    flexDirection: 'row',
+    gap: 14,
     marginTop: 8,
   },
-  totalCount: {
-    fontSize: 11.5,
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  legendDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  legendText: {
+    fontSize: 11,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  sectionTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  sectionTotal: {
+    fontSize: 12,
     fontWeight: '600',
+    fontVariant: ['tabular-nums'],
   },
   list: {
     paddingTop: 12,
@@ -499,7 +630,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 10,
+    borderRadius: 999,
   },
   deleteBtnText: {
     color: '#FFFFFF',
