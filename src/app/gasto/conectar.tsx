@@ -75,8 +75,33 @@ function diffDias(a?: string, b?: string): number {
   return Math.abs(da - db) / 86400000;
 }
 
-// Mismo monto con fechas cercanas: factura del servicio + cobro del banco
-// suelen ser el mismo gasto. Se prefiere la version del banco.
+// El recibo del servicio nunca crea un gasto aparte: si corresponde a un
+// cobro del banco (mismo monto, fechas a <=3 dias), se une a el. Es el mismo
+// modelo que usan las apps de finanzas con transacciones pendientes/posteadas.
+function fusionarRecibosConBanco(lista: EmailGasto[]): {
+  resultado: EmailGasto[];
+  fusionados: number;
+} {
+  const bancos = lista.filter((g) => g.banco);
+  const quitar = new Set<string>();
+  for (const r of lista) {
+    if (r.banco) continue;
+    const match = bancos.find(
+      (b) => Math.abs(b.monto - r.monto) < 0.01 && diffDias(b.fecha, r.fecha) <= 3
+    );
+    if (match) {
+      quitar.add(r.messageId);
+      // El recibo enriquece al cobro del banco
+      if (!match.ultimos4 && r.ultimos4) match.ultimos4 = r.ultimos4;
+      if (!match.referencia && r.referencia) match.referencia = r.referencia;
+      if (!match.comercio && r.comercio) match.comercio = r.comercio;
+    }
+  }
+  return { resultado: lista.filter((g) => !quitar.has(g.messageId)), fusionados: quitar.size };
+}
+
+// Posibles duplicados restantes: mismo monto y fechas cercanas.
+// Dos referencias distintas = transacciones distintas (nunca es duplicado).
 function detectarDuplicados(lista: EmailGasto[]): Set<string> {
   const dups = new Set<string>();
   for (let i = 0; i < lista.length; i++) {
@@ -84,6 +109,7 @@ function detectarDuplicados(lista: EmailGasto[]): Set<string> {
       const a = lista[i];
       const b = lista[j];
       if (dups.has(a.messageId) || dups.has(b.messageId)) continue;
+      if (a.referencia && b.referencia && a.referencia !== b.referencia) continue;
       if (Math.abs(a.monto - b.monto) < 0.01 && diffDias(a.fecha, b.fecha) <= 2) {
         const recibo = !a.banco ? a : b;
         dups.add(recibo.messageId);
@@ -109,6 +135,8 @@ export default function ConectarScreen() {
   const [imported, setImported] = useState(0);
   const [rango, setRango] = useState<Rango>('mes');
   const [posiblesDup, setPosiblesDup] = useState<Set<string>>(new Set());
+  const [pendientes, setPendientes] = useState<EmailGasto[]>([]);
+  const [fusionados, setFusionados] = useState(0);
   const [msEmail, setMsEmail] = useState<string | null>(null);
   const [gEmail, setGEmail] = useState<string | null>(null);
 
@@ -177,10 +205,21 @@ export default function ConectarScreen() {
     }
 
     found.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-    const dups = detectarDuplicados(found);
+
+    // 1) Facturas por pagar: no son dinero que ya salio, van aparte
+    const porPagar = found.filter((g) => g.pendiente);
+    // 2) Recibos que corresponden a cobros del banco: se unen, no se duplican
+    const { resultado, fusionados: nFus } = fusionarRecibosConBanco(
+      found.filter((g) => !g.pendiente)
+    );
+    // 3) Lo que quede con mismo monto y fecha cercana: posible duplicado
+    const dups = detectarDuplicados(resultado);
+
+    setPendientes(porPagar);
+    setFusionados(nFus);
     setPosiblesDup(dups);
-    setGastos(found);
-    setSelected(new Set(found.filter((g) => !dups.has(g.messageId)).map((g) => g.messageId)));
+    setGastos(resultado);
+    setSelected(new Set(resultado.filter((g) => !dups.has(g.messageId)).map((g) => g.messageId)));
     setError(errores.join(' '));
     setStep(conectado ? 'results' : 'landing');
   }, []);
@@ -274,14 +313,12 @@ export default function ConectarScreen() {
     const existentes = await getAllGastos();
     for (const g of elegidos) {
       try {
-        // Si ya existe (misma referencia, o misma fecha+monto+comercio), se reemplaza
-        const dup = existentes.find(
-          (e) =>
-            (g.referencia && e.referencia === g.referencia) ||
-            (e.fecha === g.fecha &&
-              Math.abs(e.monto - g.monto) < 0.005 &&
-              (e.comercio || '').toLowerCase() === (g.comercio || '').toLowerCase())
-        );
+        // Si ya existe, se reemplaza (nunca se duplica). Referencias distintas
+        // significan transacciones distintas; sin referencias decide monto+fecha.
+        const dup = existentes.find((e) => {
+          if (g.referencia && e.referencia) return e.referencia === g.referencia;
+          return Math.abs(e.monto - g.monto) < 0.005 && diffDias(e.fecha, g.fecha) <= 2;
+        });
         if (dup) await deleteGasto(dup.id);
 
         const tarjetaId = await findOrCreateTarjeta(g.banco, g.ultimos4);
@@ -467,6 +504,12 @@ export default function ConectarScreen() {
                   {gastos.length} gasto{gastos.length !== 1 ? 's' : ''} encontrado
                   {gastos.length !== 1 ? 's' : ''}
                 </Text>
+                {fusionados > 0 && (
+                  <Text style={[styles.fusionNote, { color: theme.textTertiary }]}>
+                    {fusionados} recibo{fusionados !== 1 ? 's' : ''} de servicios se
+                    {fusionados !== 1 ? ' unieron' : ' unió'} a su cobro del banco (sin duplicar)
+                  </Text>
+                )}
                 {gastos.map((g) => (
                   <Pressable
                     key={g.messageId}
@@ -517,6 +560,50 @@ export default function ConectarScreen() {
                       </Text>
                     </View>
                   </Pressable>
+                ))}
+              </>
+            )}
+
+            {pendientes.length > 0 && (
+              <>
+                <Text style={[styles.label, { color: theme.textSecondary }]}>
+                  POR PAGAR — NO SE IMPORTAN
+                </Text>
+                {pendientes.map((g) => (
+                  <View
+                    key={g.messageId}
+                    style={[
+                      styles.emailCard,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        borderWidth: 1,
+                        opacity: 0.65,
+                      },
+                    ]}
+                  >
+                    <View style={styles.emailInfo}>
+                      <View style={styles.emailTop}>
+                        <Text style={[styles.emailAmount, { color: theme.textSecondary }]}>
+                          ${g.monto.toFixed(2)}
+                        </Text>
+                        <View style={[styles.bankChip, { backgroundColor: '#B4530920' }]}>
+                          <Text style={[styles.bankChipText, { color: '#B45309' }]}>
+                            Por pagar
+                          </Text>
+                        </View>
+                      </View>
+                      <Text
+                        style={[styles.emailComercio, { color: theme.textSecondary }]}
+                        numberOfLines={1}
+                      >
+                        {g.comercio || g.subject}
+                      </Text>
+                      <Text style={[styles.emailDate, { color: theme.textTertiary }]}>
+                        {formatDate(g.fecha)} — se importara cuando llegue el cobro
+                      </Text>
+                    </View>
+                  </View>
                 ))}
               </>
             )}
@@ -720,7 +807,16 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', paddingTop: 50, gap: 8 },
   emptyTitle: { fontSize: 18, fontWeight: '700', marginTop: 8 },
   emptySubtitle: { fontSize: 14, textAlign: 'center', paddingHorizontal: 32, lineHeight: 20 },
-  resultsTitle: { fontSize: 16, fontWeight: '700', marginHorizontal: 16, marginBottom: 12 },
+  resultsTitle: { fontSize: 16, fontWeight: '700', marginHorizontal: 16, marginBottom: 4 },
+  fusionNote: { fontSize: 12, marginHorizontal: 16, marginBottom: 10 },
+  label: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 8,
+  },
   emailCard: {
     flexDirection: 'row',
     marginHorizontal: 16,

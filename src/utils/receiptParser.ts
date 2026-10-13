@@ -81,12 +81,24 @@ export function parseReceipt(
 
   // Numero de recibo/factura (debe contener digitos)
   const ref =
+    text.match(/\[#([A-Z0-9-]{4,24})\]/i) ||
     text.match(
       /(?:receipt|invoice|factura|recibo)\s*(?:number|n[uú]mero|nro\.?|no\.?)?\s*[:#]?\s*((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{5,24})\b/i
-    ) || text.match(/invoice\s+(\d{6,})/i);
+    ) ||
+    text.match(/invoice\s+(\d{6,})/i);
 
   // Tarjeta usada ("Payment method - 3886")
   const tarjeta = text.match(/payment\s+method\s*[-–—:]?\s*[*x•\s]*(\d{4})\b/i);
+
+  // Pagado vs por pagar: una factura emitida NO es dinero que ya salio
+  const evidenciaPago =
+    /amount\s+paid|paid\s+(?:on\s+)?(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d)|pagado|pago\s+(?:realizado|exitoso|recibido)|payment\s+(?:received|successful)|se\s+ha\s+cobrado|charged\s+(?:on|\$)|cobro\s+realizado/i.test(
+      text
+    );
+  const evidenciaPorPagar =
+    /open\s+invoice|amount\s+due|due\s+date|por\s+pagar|pendiente\s+de\s+pago|vence\s|link\s+for\s+payment|payment\s+link|will\s+be\s+charged|ha\s+recibido\s+un\(?a\)?\s+factura/i.test(
+      text
+    );
 
   return {
     monto,
@@ -94,5 +106,6 @@ export function parseReceipt(
     tipo: 'pago',
     referencia: ref?.[1],
     ultimos4: tarjeta?.[1],
+    pendiente: evidenciaPorPagar && !evidenciaPago,
   };
 }

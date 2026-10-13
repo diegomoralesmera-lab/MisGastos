@@ -6,6 +6,7 @@ export interface ParsedTransaction {
   banco?: string;
   tipo?: 'compra' | 'transferencia' | 'retiro' | 'pago';
   referencia?: string; // ID/documento que envia el banco
+  pendiente?: boolean; // factura emitida pero aun no pagada
 }
 
 // Correos publicitarios del banco: nunca son gastos
