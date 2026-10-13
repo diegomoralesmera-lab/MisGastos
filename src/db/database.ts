@@ -152,6 +152,10 @@ export async function insertGasto(
   return id;
 }
 
+export async function getAllGastos(): Promise<Gasto[]> {
+  return [...getData().gastos];
+}
+
 export async function getGastosMes(mes: number, ano: number): Promise<GastoConDetalles[]> {
   const data = getData();
   const mesStr = String(mes).padStart(2, '0');

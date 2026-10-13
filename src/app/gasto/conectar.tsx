@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticSuccess } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
-import { getCategorias, insertGasto, findOrCreateTarjeta } from '../../db/database';
+import { getCategorias, insertGasto, deleteGasto, getAllGastos, findOrCreateTarjeta } from '../../db/database';
 import { Categoria } from '../../types';
 import {
   MS_CLIENT_ID,
@@ -28,6 +28,7 @@ import {
   buscarGastosEnCorreo,
   markImported,
   getImportedIds,
+  clearImportedIds,
 } from '../../utils/outlookMail';
 import {
   GOOGLE_CLIENT_ID,
@@ -225,13 +226,35 @@ export default function ConectarScreen() {
     buscar(r);
   };
 
+  const handleReimportar = () => {
+    const ok =
+      typeof window === 'undefined' ||
+      window.confirm(
+        'Se volveran a traer todos los gastos de tus correos. Los que ya existen se actualizaran con su referencia y tarjeta, sin duplicarse. Continuar?'
+      );
+    if (!ok) return;
+    clearImportedIds();
+    buscar(rango);
+  };
+
   const handleImportar = async () => {
     const elegidos = gastos.filter((g) => selected.has(g.messageId));
     if (elegidos.length === 0) return;
     setStep('importing');
     let count = 0;
+    const existentes = await getAllGastos();
     for (const g of elegidos) {
       try {
+        // Si ya existe (misma referencia, o misma fecha+monto+comercio), se reemplaza
+        const dup = existentes.find(
+          (e) =>
+            (g.referencia && e.referencia === g.referencia) ||
+            (e.fecha === g.fecha &&
+              Math.abs(e.monto - g.monto) < 0.005 &&
+              (e.comercio || '').toLowerCase() === (g.comercio || '').toLowerCase())
+        );
+        if (dup) await deleteGasto(dup.id);
+
         const tarjetaId = await findOrCreateTarjeta(g.banco, g.ultimos4);
         await insertGasto({
           monto: g.monto,
@@ -516,28 +539,50 @@ export default function ConectarScreen() {
         )}
 
         {step === 'results' && gastos.length > 0 && (
-          <Pressable
-            style={[
-              styles.primaryBtn,
-              { backgroundColor: theme.primary, opacity: selected.size === 0 ? 0.5 : 1 },
-            ]}
-            onPress={handleImportar}
-          >
-            <Ionicons name="download" size={20} color="#FFFFFF" />
-            <Text style={styles.primaryBtnText}>
-              Importar {selected.size} gasto{selected.size !== 1 ? 's' : ''}
-            </Text>
-          </Pressable>
+          <>
+            <Pressable
+              style={[
+                styles.primaryBtn,
+                { backgroundColor: theme.primary, opacity: selected.size === 0 ? 0.5 : 1 },
+              ]}
+              onPress={handleImportar}
+            >
+              <Ionicons name="download" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryBtnText}>
+                Importar {selected.size} gasto{selected.size !== 1 ? 's' : ''}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: theme.border }]}
+              onPress={handleReimportar}
+            >
+              <Ionicons name="refresh-circle" size={16} color={theme.textSecondary} />
+              <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                Reimportar todo
+              </Text>
+            </Pressable>
+          </>
         )}
 
         {step === 'results' && gastos.length === 0 && (
-          <Pressable
-            style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
-            onPress={() => buscar(rango)}
-          >
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
-            <Text style={styles.primaryBtnText}>Buscar de nuevo</Text>
-          </Pressable>
+          <>
+            <Pressable
+              style={[styles.primaryBtn, { backgroundColor: theme.primary }]}
+              onPress={() => buscar(rango)}
+            >
+              <Ionicons name="refresh" size={18} color="#FFFFFF" />
+              <Text style={styles.primaryBtnText}>Buscar de nuevo</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryBtn, { borderColor: theme.border }]}
+              onPress={handleReimportar}
+            >
+              <Ionicons name="refresh-circle" size={16} color={theme.textSecondary} />
+              <Text style={[styles.secondaryBtnText, { color: theme.textSecondary }]}>
+                Reimportar todo
+              </Text>
+            </Pressable>
+          </>
         )}
 
         {step === 'done' && (

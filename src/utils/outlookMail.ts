@@ -37,6 +37,12 @@ export function getImportedIds(): Set<string> {
   }
 }
 
+export function clearImportedIds(): void {
+  try {
+    localStorage.removeItem(IMPORTED_KEY);
+  } catch {}
+}
+
 export function markImported(ids: string[]): void {
   try {
     const all = getImportedIds();
