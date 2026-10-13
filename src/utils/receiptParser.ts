@@ -20,6 +20,41 @@ function parseAmount(raw: string): number {
 const RECEIPT_HINT =
   /receipt|invoice|factura|recibo|payment|pago\s|pagado|paid|charged|cobro|suscripci[oó]n|subscription|billing/i;
 
+// Marcas conocidas: nombre limpio para mostrar como comercio
+const BRANDS: Array<[RegExp, string]> = [
+  [/anthropic|claude/i, 'Claude (Anthropic)'],
+  [/eleven\s*labs/i, 'ElevenLabs'],
+  [/hetzner/i, 'Hetzner'],
+  [/openrouter/i, 'OpenRouter'],
+  [/openai|chatgpt/i, 'OpenAI'],
+  [/delivery\s*hero|pedidosya/i, 'PedidosYa'],
+  [/netflix/i, 'Netflix'],
+  [/spotify/i, 'Spotify'],
+  [/github/i, 'GitHub'],
+  [/vercel/i, 'Vercel'],
+  [/uber/i, 'Uber'],
+  [/amazon|amzn/i, 'Amazon'],
+  [/paypal/i, 'PayPal'],
+  [/apple/i, 'Apple'],
+];
+
+function limpiarComercio(fromName?: string, fromEmail?: string, subject?: string): string {
+  const contexto = `${subject || ''} ${fromName || ''} ${fromEmail || ''}`;
+  for (const [patron, nombre] of BRANDS) {
+    if (patron.test(contexto)) return nombre;
+  }
+  let raw = (fromName || '').trim();
+  if (!raw || raw.includes('@')) {
+    raw = fromEmail?.split('@')[1]?.split('.')[0] || 'Servicio';
+  }
+  return raw
+    .replace(/^noreply\s*(billing)?\s*[-–—]?\s*/i, '')
+    .replace(/["']/g, '')
+    .replace(/[,.]+$/, '')
+    .replace(/\s+(inc\.?|llc|gmbh|pbc|ltd\.?|s\.?a\.?s?\.?)$/i, '')
+    .trim() || 'Servicio';
+}
+
 export function parseReceipt(
   subject: string,
   body: string,
@@ -44,19 +79,20 @@ export function parseReceipt(
   const monto = parseAmount(raw);
   if (!monto || !isFinite(monto) || monto <= 0 || monto > 100000) return null;
 
-  const comercio =
-    fromName?.replace(/["']/g, '').replace(/\s+(inc\.?|llc|gmbh|pbc|ltd\.?|s\.?a\.?)$/i, '').trim() ||
-    fromEmail?.split('@')[1]?.split('.')[0] ||
-    'Servicio';
+  // Numero de recibo/factura (debe contener digitos)
+  const ref =
+    text.match(
+      /(?:receipt|invoice|factura|recibo)\s*(?:number|n[uú]mero|nro\.?|no\.?)?\s*[:#]?\s*((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{5,24})\b/i
+    ) || text.match(/invoice\s+(\d{6,})/i);
 
-  const ref = text.match(
-    /(?:invoice|factura|receipt|recibo)\s*(?:number|n[uú]mero|nro\.?|no\.?)?\s*[:#]\s*([A-Z0-9][A-Z0-9-]{3,24})\b/i
-  );
+  // Tarjeta usada ("Payment method - 3886")
+  const tarjeta = text.match(/payment\s+method\s*[-–—:]?\s*[*x•\s]*(\d{4})\b/i);
 
   return {
     monto,
-    comercio,
+    comercio: limpiarComercio(fromName, fromEmail, subject),
     tipo: 'pago',
     referencia: ref?.[1],
+    ultimos4: tarjeta?.[1],
   };
 }
