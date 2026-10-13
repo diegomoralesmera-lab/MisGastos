@@ -165,12 +165,14 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      <View style={[styles.totalCard, { backgroundColor: theme.primary }]}>
-        <Text style={styles.totalLabel}>Total del mes</Text>
-        <Text style={styles.totalAmount}>${total.toFixed(2)}</Text>
-        <Text style={styles.totalCount}>
-          {gastos.length} {gastos.length === 1 ? 'gasto' : 'gastos'}
-        </Text>
+      <View style={[styles.totalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+        <Text style={[styles.totalLabel, { color: theme.textTertiary }]}>TOTAL DEL MES</Text>
+        <Text style={[styles.totalAmount, { color: theme.text }]}>${total.toFixed(2)}</Text>
+        <View style={[styles.totalBadge, { backgroundColor: theme.primaryLight }]}>
+          <Text style={[styles.totalCount, { color: theme.primary }]}>
+            {gastos.length} {gastos.length === 1 ? 'gasto' : 'gastos'}
+          </Text>
+        </View>
       </View>
 
       {clipboardBanner && (
@@ -234,13 +236,13 @@ export default function HomeScreen() {
           router.push('/gasto/conectar');
         }}
       >
-        <Ionicons name="mail-open" size={22} color={theme.primary} />
+        <Ionicons name="mail-open" size={18} color={theme.primary} />
       </Pressable>
       <Pressable
         style={[styles.fab, { backgroundColor: theme.primary }]}
         onPress={handleNuevoGasto}
       >
-        <Ionicons name="add" size={30} color="#FFFFFF" />
+        <Ionicons name="add" size={26} color="#FFFFFF" />
       </Pressable>
     </SafeAreaView>
   );
@@ -256,45 +258,54 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.4,
   },
   monthSelector: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginHorizontal: 16,
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
   },
   monthText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
+    letterSpacing: -0.2,
   },
   totalCard: {
     marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 18,
-    padding: 22,
+    marginTop: 10,
+    borderRadius: 16,
+    paddingVertical: 20,
     alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
   },
   totalLabel: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '600',
+    letterSpacing: 1,
   },
   totalAmount: {
-    color: '#FFFFFF',
-    fontSize: 36,
-    fontWeight: '800',
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: -1,
     marginTop: 4,
+    fontVariant: ['tabular-nums'],
+  },
+  totalBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginTop: 8,
   },
   totalCount: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 12,
-    marginTop: 4,
+    fontSize: 11.5,
+    fontWeight: '600',
   },
   list: {
     paddingTop: 12,
@@ -346,33 +357,33 @@ const styles = StyleSheet.create({
   },
   fabImport: {
     position: 'absolute',
-    bottom: 170,
+    bottom: 158,
     right: 24,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 4,
+    elevation: 3,
   },
   fab: {
     position: 'absolute',
     bottom: 100,
     right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
   },
 });

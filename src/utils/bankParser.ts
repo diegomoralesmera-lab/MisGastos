@@ -5,11 +5,69 @@ export interface ParsedTransaction {
   ultimos4?: string;
   banco?: string;
   tipo?: 'compra' | 'transferencia' | 'retiro' | 'pago';
+  referencia?: string; // ID/documento que envia el banco
+}
+
+// Correos publicitarios del banco: nunca son gastos
+const MARKETING = /preaprobado|promoci[oó]n|oferta|descuento|invitaci[oó]n|sorteo|felicitaciones|gana\s|te\s+presta|solicita\s+tu/i;
+const TRANSACTION_HINT = /d[eé]bito|consumo|compra|transferencia|pago|retiro|transacci[oó]n|cobro|exitos/i;
+
+function extractReferencia(text: string): string | undefined {
+  const m =
+    text.match(/de la orden\s+([A-Z0-9-]{6,20})\b/i) ||
+    text.match(
+      /(?:n[uú]mero\s+de\s+)?(?:documento|referencia|orden|comprobante|autorizaci[oó]n)\s*(?:nro\.?|no\.?|#|:)\s*([A-Z0-9][A-Z0-9-]{5,20})\b/i
+    );
+  return m?.[1];
+}
+
+// Los ultimos 4 de la tarjeta, sin confundir con cedula o RUC
+function extractUltimos4(n: string): string | undefined {
+  const tarjeta =
+    n.match(/n[uú]mero de tarjeta[:\s]*[*xX]+\s*(\d{4})/i) ||
+    n.match(/tarjeta[^.]{0,30}?termina en[:\s]*[*xX]*\s*(\d{4})/i) ||
+    n.match(/(?:Tarjeta|termina en)[:\s]*\*{1,}(\d{4})/i);
+  return tarjeta?.[1];
 }
 
 // Banco Pichincha - Transferencias y consumos
 function parsePichincha(text: string): ParsedTransaction | null {
   const normalized = text.replace(/\s+/g, ' ');
+
+  // Debito exitoso (Pichincha Empresas):
+  // "se ha realizado el débito exitoso de USD 400.0 de Pago a Proveedores ... de la orden 2610050FBY0U"
+  const debito = normalized.match(
+    /d[eé]bito exitoso de (?:USD|\$)\s*([\d.,]+)(?:\s+de\s+(.+?))?(?:\s+de la orden\s+([A-Z0-9-]+))?[,.]/i
+  );
+  if (debito) {
+    return {
+      monto: parseAmount(debito[1]),
+      comercio: debito[2]?.replace(/\s+con\s+.*$/i, '').trim(),
+      ultimos4: extractUltimos4(normalized),
+      banco: 'Pichincha',
+      tipo: 'pago',
+      referencia: debito[3] || extractReferencia(normalized),
+    };
+  }
+
+  // Pago exitoso con tarjeta de debito:
+  // "Monto $ 5.68 Comercio CORPDESFA Fecha 11/08/2026 Número de tarjeta ************0498"
+  if (/pago(?:\s+\w+)?\s+exitos/i.test(normalized) && /pichincha/i.test(normalized)) {
+    const monto = normalized.match(/Monto[:\s]*\$?\s*([\d.,]+)/i);
+    const comercio = normalized.match(/Comercio[:\s]+(.+?)(?:\s+(?:Fecha|N[uú]mero|Monto|$))/i);
+    const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
+    if (monto) {
+      return {
+        monto: parseAmount(monto[1]),
+        comercio: comercio?.[1]?.trim(),
+        fecha: parseDate(fecha?.[1]),
+        ultimos4: extractUltimos4(normalized),
+        banco: 'Pichincha',
+        tipo: 'compra',
+        referencia: extractReferencia(normalized),
+      };
+    }
+  }
 
   // Transferencia exitosa - real Pichincha email format
   if (/transferencia exitosa/i.test(normalized)) {
@@ -52,19 +110,19 @@ function parsePichincha(text: string): ParsedTransaction | null {
     }
   }
 
-  // Generic Pichincha fallback
+  // Generic Pichincha fallback (nunca sobre correos publicitarios)
   const montoGeneric = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  if (montoGeneric && /pichincha/i.test(normalized)) {
+  if (montoGeneric && /pichincha/i.test(normalized) && !MARKETING.test(normalized) && TRANSACTION_HINT.test(normalized)) {
     const concepto = normalized.match(/(?:Concepto|Comercio|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Cuenta|Tarjeta|Fecha|Documento|$))/i);
     const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-    const tarjeta = normalized.match(/(\d{4})\s*$/m) || normalized.match(/termina en[:\s]*\*{0,}(\d{4})/i);
     return {
       monto: parseAmount(montoGeneric[1]),
       comercio: concepto?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: extractUltimos4(normalized),
       banco: 'Pichincha',
       tipo: 'compra',
+      referencia: extractReferencia(normalized),
     };
   }
 
@@ -212,6 +270,9 @@ function parseDiners(text: string): ParsedTransaction | null {
 // Generic parser - tries to extract amount and details from any bank text
 function parseGeneric(text: string): ParsedTransaction | null {
   const normalized = text.replace(/\s+/g, ' ');
+
+  // Solo correos que hablan de una transaccion real, nunca publicidad
+  if (MARKETING.test(normalized) || !TRANSACTION_HINT.test(normalized)) return null;
 
   // Look for monetary amounts
   const montoPatterns = [

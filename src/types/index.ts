@@ -22,6 +22,7 @@ export interface Gasto {
   fecha: string;
   nota?: string;
   comercio?: string;
+  referencia?: string;
   tarjetaId: number;
   categoriaId: number;
   createdAt: string;

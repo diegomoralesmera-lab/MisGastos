@@ -49,9 +49,14 @@ export function parseReceipt(
     fromEmail?.split('@')[1]?.split('.')[0] ||
     'Servicio';
 
+  const ref = text.match(
+    /(?:invoice|factura|receipt|recibo)\s*(?:number|n[uú]mero|nro\.?|no\.?)?\s*[:#]\s*([A-Z0-9][A-Z0-9-]{3,24})\b/i
+  );
+
   return {
     monto,
     comercio,
     tipo: 'pago',
+    referencia: ref?.[1],
   };
 }

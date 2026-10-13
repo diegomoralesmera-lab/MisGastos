@@ -236,8 +236,9 @@ export default function ConectarScreen() {
         await insertGasto({
           monto: g.monto,
           fecha: g.fecha || new Date().toISOString().split('T')[0],
-          nota: g.banco ? `${g.banco} - ${g.tipo || 'email'}` : undefined,
+          nota: g.banco ? `${g.banco} - ${g.tipo || 'email'}` : g.subject || undefined,
           comercio: g.comercio || undefined,
+          referencia: g.referencia,
           tarjetaId,
           categoriaId:
             (g.comercio ? guessCategory(g.comercio, categorias) : null) ||
@@ -670,19 +671,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
+    paddingVertical: 13,
+    borderRadius: 12,
     gap: 8,
   },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  primaryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', letterSpacing: -0.2 },
   secondaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
     gap: 8,
     borderWidth: 1,
   },
-  secondaryBtnText: { fontSize: 14, fontWeight: '600' },
+  secondaryBtnText: { fontSize: 13.5, fontWeight: '600' },
 });
