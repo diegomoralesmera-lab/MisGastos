@@ -53,6 +53,65 @@ interface EmailIn {
   body?: string;
 }
 
+// Modelos gratis de OpenRouter, en orden de preferencia (la API prueba
+// el siguiente si uno falla o esta saturado)
+const OPENROUTER_FREE_MODELS = [
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'google/gemma-4-31b-it:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+];
+
+function extraerJSON(text: string): unknown[] | null {
+  const start = text.indexOf('[');
+  const end = text.lastIndexOf(']');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+async function conOpenRouter(payload: unknown): Promise<unknown[] | null> {
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://misgastos-seven.vercel.app',
+      'X-Title': 'MisGastos',
+    },
+    body: JSON.stringify({
+      models: OPENROUTER_FREE_MODELS,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: SYSTEM },
+        { role: 'user', content: JSON.stringify(payload) },
+      ],
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  const text = data?.choices?.[0]?.message?.content || '';
+  return extraerJSON(text);
+}
+
+async function conClaude(payload: unknown): Promise<unknown[] | null> {
+  const client = new Anthropic();
+  const response = await client.messages.create({
+    model: 'claude-haiku-5-5',
+    max_tokens: 8000,
+    output_config: { effort: 'low' },
+    system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+    messages: [{ role: 'user', content: JSON.stringify(payload) }],
+  });
+  let text = '';
+  for (const block of response.content) {
+    if (block.type === 'text') text += block.text;
+  }
+  return extraerJSON(text);
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -60,7 +119,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  const tieneOpenRouter = !!process.env.OPENROUTER_API_KEY;
+  const tieneClaude = !!process.env.ANTHROPIC_API_KEY;
+  if (!tieneOpenRouter && !tieneClaude) {
     return res.status(503).json({ error: 'ai-not-configured' });
   }
 
@@ -77,25 +138,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }));
 
   try {
-    const client = new Anthropic();
-    const response = await client.messages.create({
-      model: 'claude-haiku-5-5',
-      max_tokens: 8000,
-      output_config: { effort: 'low' },
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      messages: [{ role: 'user', content: JSON.stringify(payload) }],
-    });
-
-    let text = '';
-    for (const block of response.content) {
-      if (block.type === 'text') text += block.text;
+    let results: unknown[] | null = null;
+    if (tieneOpenRouter) {
+      results = await conOpenRouter(payload);
     }
-    const start = text.indexOf('[');
-    const end = text.lastIndexOf(']');
-    if (start < 0 || end <= start) {
+    if (!results && tieneClaude) {
+      results = await conClaude(payload);
+    }
+    if (!results) {
       return res.status(502).json({ error: 'respuesta-invalida' });
     }
-    const results = JSON.parse(text.slice(start, end + 1));
     return res.status(200).json({ results });
   } catch (err: any) {
     return res.status(502).json({ error: err?.message || 'ai-error' });
