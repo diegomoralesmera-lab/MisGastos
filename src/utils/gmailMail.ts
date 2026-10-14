@@ -1,9 +1,7 @@
 // Busca correos de bancos en Gmail (Gmail API) y extrae los gastos
 // con el mismo parser del resto de la app.
 
-import { parseNotification } from './bankParser';
-import { parseReceipt } from './receiptParser';
-import { EmailGasto } from './outlookMail';
+import { EmailGasto, Candidato, extraerGastos } from './outlookMail';
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -59,7 +57,7 @@ export async function buscarGastosEnGmail(
   skipIds: Set<string>
 ): Promise<EmailGasto[]> {
   const after = `${desde.getFullYear()}/${desde.getMonth() + 1}/${desde.getDate()}`;
-  const found = new Map<string, EmailGasto>();
+  const candidatos = new Map<string, Candidato>();
 
   for (const terms of QUERIES) {
     const q = `(${terms}) after:${after}`;
@@ -71,7 +69,7 @@ export async function buscarGastosEnGmail(
     const list = await listRes.json();
 
     for (const ref of list.messages || []) {
-      if (!ref.id || skipIds.has(ref.id) || found.has(ref.id)) continue;
+      if (!ref.id || skipIds.has(ref.id) || candidatos.has(ref.id)) continue;
       let msgRes: Response;
       try {
         msgRes = await fetch(`${GMAIL}/messages/${ref.id}?format=full`, {
@@ -90,21 +88,17 @@ export async function buscarGastosEnGmail(
       const fromEmail = from.match(/<([^>]+)>/)?.[1] || from;
       const receivedAt = new Date(Number(msg.internalDate || Date.now())).toISOString();
 
-      const body = extractBody(msg.payload || {});
-      const parsed =
-        parseNotification(`${subject}\n${body}`) ||
-        parseReceipt(subject, body, fromName, fromEmail);
-      if (parsed && parsed.monto > 0) {
-        found.set(ref.id, {
-          ...parsed,
-          fecha: parsed.fecha || receivedAt.split('T')[0],
-          messageId: ref.id,
-          subject,
-          receivedAt,
-        });
-      }
+      candidatos.set(ref.id, {
+        id: ref.id,
+        subject,
+        body: extractBody(msg.payload || {}),
+        from,
+        fromName,
+        fromEmail,
+        receivedAt,
+      });
     }
   }
 
-  return [...found.values()];
+  return extraerGastos([...candidatos.values()]);
 }

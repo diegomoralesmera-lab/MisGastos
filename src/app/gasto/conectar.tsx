@@ -337,6 +337,7 @@ export default function ConectarScreen() {
           emailId: g.messageId,
           tarjetaId,
           categoriaId:
+            (g.categoria ? categorias.find((c) => c.nombre === g.categoria)?.id : null) ||
             (g.comercio ? guessCategory(g.comercio, categorias) : null) ||
             categorias.find((c) => c.nombre === 'Otro')?.id ||
             categorias[categorias.length - 1]?.id,

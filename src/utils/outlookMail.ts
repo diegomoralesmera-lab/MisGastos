@@ -3,11 +3,13 @@
 
 import { parseNotification, ParsedTransaction } from './bankParser';
 import { parseReceipt } from './receiptParser';
+import { parsearConIA } from './aiParser';
 
 export interface EmailGasto extends ParsedTransaction {
   messageId: string;
   subject: string;
   receivedAt: string;
+  categoria?: string; // sugerida por la IA
 }
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
@@ -67,13 +69,24 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+export interface Candidato {
+  id: string;
+  subject: string;
+  body: string;
+  from: string;
+  fromName?: string;
+  fromEmail?: string;
+  receivedAt: string;
+}
+
 export async function buscarGastosEnCorreo(
   token: string,
   desde: Date
 ): Promise<EmailGasto[]> {
-  const found = new Map<string, EmailGasto>();
   const imported = getImportedIds();
+  const candidatos = new Map<string, Candidato>();
 
+  // Fase 1: recolectar correos candidatos
   for (const term of SEARCH_TERMS) {
     const url =
       `${GRAPH}/me/messages?$search="${encodeURIComponent(term)}"` +
@@ -89,29 +102,51 @@ export async function buscarGastosEnCorreo(
     const data = await res.json();
 
     for (const msg of data.value || []) {
-      if (!msg.id || found.has(msg.id) || imported.has(msg.id)) continue;
+      if (!msg.id || candidatos.has(msg.id) || imported.has(msg.id)) continue;
       if (!msg.receivedDateTime || new Date(msg.receivedDateTime) < desde) continue;
-
-      const text = htmlToText(msg.body?.content || '');
-      const parsed =
-        parseNotification(`${msg.subject || ''}\n${text}`) ||
-        parseReceipt(
-          msg.subject || '',
-          text,
-          msg.from?.emailAddress?.name,
-          msg.from?.emailAddress?.address
-        );
-      if (parsed && parsed.monto > 0) {
-        found.set(msg.id, {
-          ...parsed,
-          fecha: parsed.fecha || msg.receivedDateTime.split('T')[0],
-          messageId: msg.id,
-          subject: msg.subject || '',
-          receivedAt: msg.receivedDateTime,
-        });
-      }
+      const fromName = msg.from?.emailAddress?.name;
+      const fromEmail = msg.from?.emailAddress?.address;
+      candidatos.set(msg.id, {
+        id: msg.id,
+        subject: msg.subject || '',
+        body: htmlToText(msg.body?.content || ''),
+        from: `${fromName || ''} <${fromEmail || ''}>`,
+        fromName,
+        fromEmail,
+        receivedAt: msg.receivedDateTime,
+      });
     }
   }
 
-  return [...found.values()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  return extraerGastos([...candidatos.values()]);
+}
+
+// Fase 2: IA primero, lector clasico como respaldo
+export async function extraerGastos(candidatos: Candidato[]): Promise<EmailGasto[]> {
+  const ai = await parsearConIA(
+    candidatos.map((c) => ({ id: c.id, from: c.from, subject: c.subject, body: c.body }))
+  );
+
+  const found: EmailGasto[] = [];
+  for (const c of candidatos) {
+    let parsed: (ParsedTransaction & { categoria?: string }) | null | undefined;
+    if (ai && ai.has(c.id)) {
+      parsed = ai.get(c.id); // null = la IA dijo "no es gasto"
+    } else {
+      parsed =
+        parseNotification(`${c.subject}\n${c.body}`) ||
+        parseReceipt(c.subject, c.body, c.fromName, c.fromEmail);
+    }
+    if (parsed && parsed.monto > 0) {
+      found.push({
+        ...parsed,
+        fecha: parsed.fecha || c.receivedAt.split('T')[0],
+        messageId: c.id,
+        subject: c.subject,
+        receivedAt: c.receivedAt,
+      });
+    }
+  }
+
+  return found.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
 }
