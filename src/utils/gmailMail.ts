@@ -57,28 +57,42 @@ export async function buscarGastosEnGmail(
   skipIds: Set<string>
 ): Promise<EmailGasto[]> {
   const after = `${desde.getFullYear()}/${desde.getMonth() + 1}/${desde.getDate()}`;
-  const candidatos = new Map<string, Candidato>();
 
-  for (const terms of QUERIES) {
-    const q = `(${terms}) after:${after}`;
-    const listUrl = `${GMAIL}/messages?q=${encodeURIComponent(q)}&maxResults=50`;
+  // Las dos busquedas en paralelo
+  const listas = await Promise.all(
+    QUERIES.map(async (terms) => {
+      const q = `(${terms}) after:${after}`;
+      const listUrl = `${GMAIL}/messages?q=${encodeURIComponent(q)}&maxResults=50`;
+      const listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (listRes.status === 401 || listRes.status === 403) throw new Error('UNAUTHORIZED');
+      if (!listRes.ok) return [];
+      const list = await listRes.json();
+      return (list.messages || []) as Array<{ id?: string }>;
+    })
+  );
 
-    const listRes = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
-    if (listRes.status === 401 || listRes.status === 403) throw new Error('UNAUTHORIZED');
-    if (!listRes.ok) continue;
-    const list = await listRes.json();
+  const ids: string[] = [];
+  const vistos = new Set<string>();
+  for (const lista of listas) {
+    for (const ref of lista) {
+      if (!ref.id || skipIds.has(ref.id) || vistos.has(ref.id)) continue;
+      vistos.add(ref.id);
+      ids.push(ref.id);
+    }
+  }
 
-    for (const ref of list.messages || []) {
-      if (!ref.id || skipIds.has(ref.id) || candidatos.has(ref.id)) continue;
+  // Descarga de todos los correos en paralelo
+  const detalles = await Promise.all(
+    ids.map(async (id): Promise<Candidato | null> => {
       let msgRes: Response;
       try {
-        msgRes = await fetch(`${GMAIL}/messages/${ref.id}?format=full`, {
+        msgRes = await fetch(`${GMAIL}/messages/${id}?format=full`, {
           headers: { Authorization: `Bearer ${token}` },
         });
       } catch {
-        continue;
+        return null;
       }
-      if (!msgRes.ok) continue;
+      if (!msgRes.ok) return null;
       const msg = await msgRes.json();
 
       const headers: Array<{ name: string; value: string }> = msg.payload?.headers || [];
@@ -88,17 +102,17 @@ export async function buscarGastosEnGmail(
       const fromEmail = from.match(/<([^>]+)>/)?.[1] || from;
       const receivedAt = new Date(Number(msg.internalDate || Date.now())).toISOString();
 
-      candidatos.set(ref.id, {
-        id: ref.id,
+      return {
+        id,
         subject,
         body: extractBody(msg.payload || {}),
         from,
         fromName,
         fromEmail,
         receivedAt,
-      });
-    }
-  }
+      };
+    })
+  );
 
-  return extraerGastos([...candidatos.values()]);
+  return extraerGastos(detalles.filter((d): d is Candidato => d !== null));
 }

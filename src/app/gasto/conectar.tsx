@@ -149,52 +149,53 @@ export default function ConectarScreen() {
     const errores: string[] = [];
     let conectado = false;
 
-    // Outlook / Hotmail
-    try {
-      const token = await getAccessToken();
-      if (token) {
-        conectado = true;
-        for (const g of await buscarGastosEnCorreo(token, desde)) {
-          if (!seen.has(g.messageId)) {
-            seen.add(g.messageId);
-            found.push(g);
+    // Outlook y Gmail al mismo tiempo
+    const [resOutlook, resGmail] = await Promise.all([
+      (async (): Promise<{ gastos: EmailGasto[]; conectado: boolean; error?: string }> => {
+        try {
+          const token = await getAccessToken();
+          if (!token) {
+            setMsEmail(null);
+            return { gastos: [], conectado: false };
           }
+          return { gastos: await buscarGastosEnCorreo(token, desde), conectado: true };
+        } catch (err: any) {
+          if (err?.message === 'UNAUTHORIZED') {
+            disconnect();
+            setMsEmail(null);
+            return { gastos: [], conectado: false, error: 'La sesion de Outlook expiro, conectala de nuevo.' };
+          }
+          return { gastos: [], conectado: true, error: 'Outlook: ' + (err?.message || 'no se pudo leer') };
         }
-      } else {
-        setMsEmail(null);
-      }
-    } catch (err: any) {
-      if (err?.message === 'UNAUTHORIZED') {
-        disconnect();
-        setMsEmail(null);
-        errores.push('La sesion de Outlook expiro, conectala de nuevo.');
-      } else {
-        errores.push('Outlook: ' + (err?.message || 'no se pudo leer'));
-      }
-    }
+      })(),
+      (async (): Promise<{ gastos: EmailGasto[]; conectado: boolean; error?: string }> => {
+        try {
+          const token = await getGoogleAccessToken();
+          if (!token) {
+            setGEmail(null);
+            return { gastos: [], conectado: false };
+          }
+          const skip = getImportedIds();
+          return { gastos: await buscarGastosEnGmail(token, desde, skip), conectado: true };
+        } catch (err: any) {
+          if (err?.message === 'UNAUTHORIZED') {
+            disconnectGoogle();
+            setGEmail(null);
+            return { gastos: [], conectado: false, error: 'La sesion de Gmail expiro, conectala de nuevo.' };
+          }
+          return { gastos: [], conectado: true, error: 'Gmail: ' + (err?.message || 'no se pudo leer') };
+        }
+      })(),
+    ]);
 
-    // Gmail
-    try {
-      const token = await getGoogleAccessToken();
-      if (token) {
-        conectado = true;
-        const skip = getImportedIds();
-        for (const g of await buscarGastosEnGmail(token, desde, skip)) {
-          if (!seen.has(g.messageId)) {
-            seen.add(g.messageId);
-            found.push(g);
-          }
+    for (const res of [resOutlook, resGmail]) {
+      if (res.conectado) conectado = true;
+      if (res.error) errores.push(res.error);
+      for (const g of res.gastos) {
+        if (!seen.has(g.messageId)) {
+          seen.add(g.messageId);
+          found.push(g);
         }
-      } else {
-        setGEmail(null);
-      }
-    } catch (err: any) {
-      if (err?.message === 'UNAUTHORIZED') {
-        disconnectGoogle();
-        setGEmail(null);
-        errores.push('La sesion de Gmail expiro, conectala de nuevo.');
-      } else {
-        errores.push('Gmail: ' + (err?.message || 'no se pudo leer'));
       }
     }
 

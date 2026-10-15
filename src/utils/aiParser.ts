@@ -39,22 +39,32 @@ export async function parsearConIA(
   if (items.length === 0) return new Map();
   const out = new Map<string, AIResult | null>();
 
+  const lotes: RawEmail[][] = [];
   for (let i = 0; i < items.length; i += 15) {
-    const lote = items.slice(i, i + 15);
-    let rows: AIRow[];
-    try {
-      const res = await fetch(`${apiBase()}/api/parse-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emails: lote }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      rows = Array.isArray(data.results) ? data.results : [];
-    } catch {
-      return null;
-    }
+    lotes.push(items.slice(i, i + 15));
+  }
 
+  // Todos los lotes en paralelo
+  const respuestas = await Promise.all(
+    lotes.map(async (lote): Promise<AIRow[] | null> => {
+      try {
+        const res = await fetch(`${apiBase()}/api/parse-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: lote }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        return Array.isArray(data.results) ? data.results : [];
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  if (respuestas.some((r) => r === null)) return null;
+
+  for (const rows of respuestas as AIRow[][]) {
     for (const r of rows) {
       if (!r?.id) continue;
       if (!r.es_gasto || !r.monto || r.monto <= 0) {

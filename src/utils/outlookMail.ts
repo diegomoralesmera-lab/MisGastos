@@ -86,22 +86,27 @@ export async function buscarGastosEnCorreo(
   const imported = getImportedIds();
   const candidatos = new Map<string, Candidato>();
 
-  // Fase 1: recolectar correos candidatos
-  for (const term of SEARCH_TERMS) {
-    const url =
-      `${GRAPH}/me/messages?$search="${encodeURIComponent(term)}"` +
-      `&$top=25&$select=id,subject,receivedDateTime,body,from`;
-    let res: Response;
-    try {
-      res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    } catch {
-      continue;
-    }
-    if (res.status === 401) throw new Error('UNAUTHORIZED');
-    if (!res.ok) continue;
-    const data = await res.json();
+  // Fase 1: todas las busquedas en paralelo
+  const porTermino = await Promise.all(
+    SEARCH_TERMS.map(async (term) => {
+      const url =
+        `${GRAPH}/me/messages?$search="${encodeURIComponent(term)}"` +
+        `&$top=25&$select=id,subject,receivedDateTime,body,from`;
+      let res: Response;
+      try {
+        res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      } catch {
+        return [];
+      }
+      if (res.status === 401) throw new Error('UNAUTHORIZED');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.value || []) as any[];
+    })
+  );
 
-    for (const msg of data.value || []) {
+  for (const lote of porTermino) {
+    for (const msg of lote) {
       if (!msg.id || candidatos.has(msg.id) || imported.has(msg.id)) continue;
       if (!msg.receivedDateTime || new Date(msg.receivedDateTime) < desde) continue;
       const fromName = msg.from?.emailAddress?.name;
