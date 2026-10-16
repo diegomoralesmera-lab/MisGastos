@@ -110,6 +110,7 @@ export async function buscarGastosEnGmail(
         fromName,
         fromEmail,
         receivedAt,
+        enlace: `https://mail.google.com/mail/u/0/#all/${id}`,
       };
     })
   );

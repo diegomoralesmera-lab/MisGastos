@@ -24,6 +24,17 @@ import {
 } from '../../db/database';
 import { Tarjeta, Categoria, GastoConDetalles } from '../../types';
 
+// Enlace al correo original: guardado al importar, o reconstruido
+// a partir del id para gastos antiguos
+function enlaceCorreo(g: { emailLink?: string; emailId?: string }): string | null {
+  if (g.emailLink) return g.emailLink;
+  if (!g.emailId) return null;
+  if (/^[0-9a-f]{8,20}$/i.test(g.emailId)) {
+    return `https://mail.google.com/mail/u/0/#all/${g.emailId}`;
+  }
+  return `https://outlook.live.com/mail/0/deeplink/read/${encodeURIComponent(g.emailId)}`;
+}
+
 function webAlert(
   title: string,
   message?: string,
@@ -164,6 +175,19 @@ export default function DetalleGastoScreen() {
                 </Text>
               )}
             </View>
+            {enlaceCorreo(gasto) && (
+              <Pressable
+                onPress={() => {
+                  const url = enlaceCorreo(gasto)!;
+                  if (Platform.OS === 'web') window.open(url, '_blank');
+                }}
+                style={[styles.verCorreoBtn, { backgroundColor: theme.primaryLight }]}
+                hitSlop={8}
+              >
+                <Ionicons name="open-outline" size={13} color={theme.primary} />
+                <Text style={[styles.verCorreoText, { color: theme.primary }]}>Ver correo</Text>
+              </Pressable>
+            )}
           </View>
         )}
 
@@ -283,6 +307,15 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   origenText: { fontSize: 12.5, fontWeight: '600' },
+  verCorreoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  verCorreoText: { fontSize: 12, fontWeight: '600' },
   origenRef: { fontSize: 11.5, marginTop: 1, fontVariant: ['tabular-nums'] },
   label: {
     fontSize: 11.5,

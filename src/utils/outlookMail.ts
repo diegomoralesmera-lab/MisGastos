@@ -10,6 +10,7 @@ export interface EmailGasto extends ParsedTransaction {
   subject: string;
   receivedAt: string;
   categoria?: string; // sugerida por la IA
+  enlace?: string; // link para abrir el correo original
 }
 
 const GRAPH = 'https://graph.microsoft.com/v1.0';
@@ -77,6 +78,7 @@ export interface Candidato {
   fromName?: string;
   fromEmail?: string;
   receivedAt: string;
+  enlace?: string;
 }
 
 export async function buscarGastosEnCorreo(
@@ -91,7 +93,7 @@ export async function buscarGastosEnCorreo(
     SEARCH_TERMS.map(async (term) => {
       const url =
         `${GRAPH}/me/messages?$search="${encodeURIComponent(term)}"` +
-        `&$top=25&$select=id,subject,receivedDateTime,body,from`;
+        `&$top=25&$select=id,subject,receivedDateTime,body,from,webLink`;
       let res: Response;
       try {
         res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
@@ -119,6 +121,7 @@ export async function buscarGastosEnCorreo(
         fromName,
         fromEmail,
         receivedAt: msg.receivedDateTime,
+        enlace: msg.webLink || undefined,
       });
     }
   }
@@ -149,6 +152,7 @@ export async function extraerGastos(candidatos: Candidato[]): Promise<EmailGasto
         messageId: c.id,
         subject: c.subject,
         receivedAt: c.receivedAt,
+        enlace: c.enlace,
       });
     }
   }

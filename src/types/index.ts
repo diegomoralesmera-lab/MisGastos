@@ -24,6 +24,7 @@ export interface Gasto {
   comercio?: string;
   referencia?: string;
   emailId?: string; // id del correo del que salio: un correo = un gasto, siempre
+  emailLink?: string; // enlace directo para abrir el correo original
   tarjetaId: number;
   categoriaId: number;
   createdAt: string;

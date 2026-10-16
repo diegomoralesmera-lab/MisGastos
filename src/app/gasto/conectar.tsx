@@ -336,6 +336,7 @@ export default function ConectarScreen() {
           comercio: g.comercio || undefined,
           referencia: g.referencia,
           emailId: g.messageId,
+          emailLink: g.enlace,
           tarjetaId,
           categoriaId:
             (g.categoria ? categorias.find((c) => c.nombre === g.categoria)?.id : null) ||
