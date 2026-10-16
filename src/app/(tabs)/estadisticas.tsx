@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../hooks/useColorScheme';
-import { getResumenMes, getTotalMes } from '../../db/database';
+import { getResumenMes, getTotalMes, getGastosMes } from '../../db/database';
 import { ResumenCategoria } from '../../types';
 
 export default function EstadisticasScreen() {
@@ -32,13 +33,51 @@ export default function EstadisticasScreen() {
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
   ];
 
+  const handleExportarCSV = async () => {
+    if (Platform.OS !== 'web') return;
+    const gastos = await getGastosMes(mes, ano);
+    const filas = [
+      'Fecha;Comercio;Categoria;Tarjeta;Monto;Referencia;Nota',
+      ...gastos.map((g) =>
+        [
+          g.fecha,
+          g.comercio || '',
+          g.categoriaNombre,
+          `${g.tarjetaNombre}${g.tarjetaUltimos4 !== '0000' ? ' *' + g.tarjetaUltimos4 : ''}`,
+          g.monto.toFixed(2),
+          g.referencia || '',
+          (g.nota || '').replace(/;/g, ','),
+        ].join(';')
+      ),
+      `;;;TOTAL;${total.toFixed(2)};;`,
+    ];
+    const blob = new Blob(['﻿' + filas.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `gastos-${ano}-${String(mes).padStart(2, '0')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Reportes</Text>
-        <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-          {MESES[mes - 1]} {ano}
-        </Text>
+        <View>
+          <Text style={[styles.title, { color: theme.text }]}>Reportes</Text>
+          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+            {MESES[mes - 1]} {ano}
+          </Text>
+        </View>
+        {resumen.length > 0 && (
+          <Pressable
+            onPress={handleExportarCSV}
+            style={[styles.exportBtn, { backgroundColor: theme.primaryLight }]}
+          >
+            <Ionicons name="download-outline" size={15} color={theme.primary} />
+            <Text style={[styles.exportText, { color: theme.primary }]}>Exportar</Text>
+          </Pressable>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -122,9 +161,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 12,
+  },
+  exportBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  exportText: {
+    fontSize: 12.5,
+    fontWeight: '600',
   },
   title: {
     fontSize: 28,

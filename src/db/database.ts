@@ -8,6 +8,7 @@ interface AppData {
   categorias: Categoria[];
   nextTarjetaId: number;
   nextGastoId: number;
+  presupuestoMensual?: number;
 }
 
 function getDefaultData(): AppData {
@@ -154,6 +155,45 @@ export async function insertGasto(
 
 export async function getAllGastos(): Promise<Gasto[]> {
   return [...getData().gastos];
+}
+
+export async function getGasto(id: number): Promise<GastoConDetalles | null> {
+  const data = getData();
+  const g = data.gastos.find((x) => x.id === id);
+  if (!g) return null;
+  const tarjeta = data.tarjetas.find((t) => t.id === g.tarjetaId);
+  const categoria = data.categorias.find((c) => c.id === g.categoriaId);
+  return {
+    ...g,
+    tarjetaNombre: tarjeta?.nombre ?? '',
+    tarjetaColor: tarjeta?.color ?? '#666',
+    tarjetaUltimos4: tarjeta?.ultimos4 ?? '0000',
+    categoriaNombre: categoria?.nombre ?? '',
+    categoriaIcono: categoria?.icono ?? '📌',
+    categoriaColor: categoria?.color ?? '#666',
+  };
+}
+
+export async function updateGasto(
+  id: number,
+  cambios: Partial<Omit<Gasto, 'id' | 'createdAt'>>
+): Promise<void> {
+  const data = getData();
+  const idx = data.gastos.findIndex((g) => g.id === id);
+  if (idx < 0) return;
+  data.gastos[idx] = { ...data.gastos[idx], ...cambios };
+  persist();
+}
+
+export async function getPresupuestoMensual(): Promise<number | null> {
+  return getData().presupuestoMensual ?? null;
+}
+
+export async function setPresupuestoMensual(monto: number | null): Promise<void> {
+  const data = getData();
+  if (monto && monto > 0) data.presupuestoMensual = monto;
+  else delete data.presupuestoMensual;
+  persist();
 }
 
 export async function getGastosMes(mes: number, ano: number): Promise<GastoConDetalles[]> {

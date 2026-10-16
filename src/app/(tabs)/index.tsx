@@ -5,6 +5,7 @@ import {
   StyleSheet,
   SectionList,
   Pressable,
+  TextInput,
   Alert,
   RefreshControl,
   Animated,
@@ -15,7 +16,15 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { hapticImpact } from '../../hooks/useHaptics';
 import { useTheme } from '../../hooks/useColorScheme';
 import { GastoItem } from '../../components/GastoItem';
-import { getGastosMes, getTotalMes, getResumenMes, deleteGasto, deleteGastos } from '../../db/database';
+import {
+  getGastosMes,
+  getTotalMes,
+  getResumenMes,
+  deleteGasto,
+  deleteGastos,
+  getPresupuestoMensual,
+  setPresupuestoMensual,
+} from '../../db/database';
 import { ResumenCategoria } from '../../types';
 import { parseNotification } from '../../utils/bankParser';
 import { GastoConDetalles } from '../../types';
@@ -50,6 +59,9 @@ export default function HomeScreen() {
   const [total, setTotal] = useState(0);
   const [totalAnterior, setTotalAnterior] = useState(0);
   const [resumen, setResumen] = useState<ResumenCategoria[]>([]);
+  const [presupuesto, setPresupuesto] = useState<number | null>(null);
+  const [busqueda, setBusqueda] = useState('');
+  const [buscando, setBuscando] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -60,16 +72,18 @@ export default function HomeScreen() {
   const loadData = useCallback(async () => {
     const mesPrev = mes === 1 ? 12 : mes - 1;
     const anoPrev = mes === 1 ? ano - 1 : ano;
-    const [gastosData, totalData, prevData, resumenData] = await Promise.all([
+    const [gastosData, totalData, prevData, resumenData, presupuestoData] = await Promise.all([
       getGastosMes(mes, ano),
       getTotalMes(mes, ano),
       getTotalMes(mesPrev, anoPrev),
       getResumenMes(mes, ano),
+      getPresupuestoMensual(),
     ]);
     setGastos(gastosData);
     setTotal(totalData);
     setTotalAnterior(prevData);
     setResumen(resumenData);
+    setPresupuesto(presupuestoData);
   }, [mes, ano]);
 
   useFocusEffect(
@@ -198,10 +212,32 @@ export default function HomeScreen() {
     );
   };
 
+  const handleEditarPresupuesto = () => {
+    if (Platform.OS !== 'web') return;
+    const actual = presupuesto ? String(presupuesto) : '';
+    const v = window.prompt(
+      'Presupuesto mensual en $ (deja vacio para quitarlo):',
+      actual
+    );
+    if (v === null) return;
+    const n = parseFloat(v.replace(',', '.'));
+    setPresupuestoMensual(n > 0 ? n : null).then(loadData);
+  };
+
+  // Filtro de busqueda por comercio, nota, referencia o categoria
+  const q = busqueda.trim().toLowerCase();
+  const gastosFiltrados = q
+    ? gastos.filter((g) =>
+        [g.comercio, g.nota, g.referencia, g.categoriaNombre, g.tarjetaNombre]
+          .filter(Boolean)
+          .some((campo) => (campo as string).toLowerCase().includes(q))
+      )
+    : gastos;
+
   // Gastos agrupados por dia, como las apps de finanzas del mercado
   const secciones = (() => {
     const grupos = new Map<string, GastoConDetalles[]>();
-    for (const g of gastos) {
+    for (const g of gastosFiltrados) {
       const k = (g.fecha || '').split('T')[0];
       if (!grupos.has(k)) grupos.set(k, []);
       grupos.get(k)!.push(g);
@@ -232,14 +268,46 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: theme.text }]}>Mis Gastos</Text>
-        {gastos.length > 0 && (
-          <Pressable onPress={toggleSelectMode} hitSlop={10}>
-            <Text style={[styles.selectBtn, { color: theme.primary }]}>
-              {selectMode ? 'Cancelar' : 'Seleccionar'}
-            </Text>
-          </Pressable>
-        )}
+        <View style={styles.headerActions}>
+          {gastos.length > 0 && (
+            <Pressable
+              onPress={() => {
+                hapticImpact('light');
+                setBuscando(!buscando);
+                if (buscando) setBusqueda('');
+              }}
+              hitSlop={10}
+            >
+              <Ionicons
+                name={buscando ? 'close-circle' : 'search'}
+                size={20}
+                color={theme.primary}
+              />
+            </Pressable>
+          )}
+          {gastos.length > 0 && (
+            <Pressable onPress={toggleSelectMode} hitSlop={10}>
+              <Text style={[styles.selectBtn, { color: theme.primary }]}>
+                {selectMode ? 'Cancelar' : 'Seleccionar'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {buscando && (
+        <View style={[styles.searchBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <Ionicons name="search" size={16} color={theme.textTertiary} />
+          <TextInput
+            style={[styles.searchInput, { color: theme.text }]}
+            placeholder="Buscar por comercio, nota, referencia..."
+            placeholderTextColor={theme.textTertiary}
+            value={busqueda}
+            onChangeText={setBusqueda}
+            autoFocus
+          />
+        </View>
+      )}
 
       <View style={[styles.monthSelector, { backgroundColor: theme.surface }]}>
         <Pressable onPress={() => cambiarMes(-1)} hitSlop={12}>
@@ -253,7 +321,10 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      <View style={[styles.totalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+      <Pressable
+        onPress={handleEditarPresupuesto}
+        style={[styles.totalCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+      >
         <Text style={[styles.totalLabel, { color: theme.textTertiary }]}>
           GASTADO EN {MESES[mes - 1].toUpperCase()}
         </Text>
@@ -270,6 +341,36 @@ export default function HomeScreen() {
               {Math.abs(delta).toFixed(0)}% vs {MESES[mes === 1 ? 11 : mes - 2].toLowerCase()}
             </Text>
           </View>
+        )}
+
+        {presupuesto ? (
+          <View style={styles.presupuestoWrap}>
+            <View style={[styles.presupuestoBar, { backgroundColor: theme.surfaceSecondary }]}>
+              <View
+                style={[
+                  styles.presupuestoFill,
+                  {
+                    width: `${Math.min((total / presupuesto) * 100, 100)}%`,
+                    backgroundColor:
+                      total > presupuesto
+                        ? theme.danger
+                        : total > presupuesto * 0.8
+                          ? '#D97706'
+                          : theme.accent,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={[styles.presupuestoText, { color: theme.textSecondary }]}>
+              {total > presupuesto
+                ? `Excedido por $${(total - presupuesto).toFixed(2)} de $${presupuesto.toFixed(0)}`
+                : `Quedan $${(presupuesto - total).toFixed(2)} de $${presupuesto.toFixed(0)}`}
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.presupuestoHint, { color: theme.textTertiary }]}>
+            Toca para fijar un presupuesto mensual
+          </Text>
         )}
 
         {resumen.length > 0 && (
@@ -294,7 +395,7 @@ export default function HomeScreen() {
             </View>
           </>
         )}
-      </View>
+      </Pressable>
 
       {clipboardBanner && (
         <Animated.View
@@ -336,7 +437,14 @@ export default function HomeScreen() {
             gasto={item}
             selectable={selectMode}
             selected={selectedIds.has(item.id)}
-            onPress={selectMode ? () => toggleSelected(item.id) : undefined}
+            onPress={
+              selectMode
+                ? () => toggleSelected(item.id)
+                : () => {
+                    hapticImpact('light');
+                    router.push(`/gasto/${item.id}`);
+                  }
+            }
             onLongPress={selectMode ? undefined : () => handleDeleteGasto(item)}
           />
         )}
@@ -431,6 +539,51 @@ const styles = StyleSheet.create({
   selectBtn: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+  presupuestoWrap: {
+    alignSelf: 'stretch',
+    marginHorizontal: 18,
+    marginTop: 10,
+  },
+  presupuestoBar: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  presupuestoFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  presupuestoText: {
+    fontSize: 11.5,
+    marginTop: 5,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  presupuestoHint: {
+    fontSize: 11,
+    marginTop: 6,
   },
   title: {
     fontSize: 24,
