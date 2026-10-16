@@ -26,7 +26,8 @@ function extractReferencia(text: string): string | undefined {
 function extractUltimos4(n: string): string | undefined {
   const tarjeta =
     n.match(/n[uú]mero de tarjeta[:\s]*[*xX]+\s*(\d{4})/i) ||
-    n.match(/tarjeta[^.]{0,30}?termina en[:\s]*[*xX]*\s*(\d{4})/i) ||
+    n.match(/tarjeta\s+terminada?\s+en[:\s]*[*xX]*\s*(\d{3,4})\b/i) ||
+    n.match(/tarjeta[^.]{0,30}?termina en[:\s]*[*xX]*\s*(\d{3,4})\b/i) ||
     n.match(/(?:Tarjeta|termina en)[:\s]*\*{1,}(\d{4})/i);
   return tarjeta?.[1];
 }
@@ -93,18 +94,18 @@ function parsePichincha(text: string): ParsedTransaction | null {
     }
   }
 
-  // Consumo/Compra con tarjeta
-  if (/consumo|compra|transacci[oó]n/i.test(normalized)) {
+  // Consumo/Compra con tarjeta (solo si el correo es de Pichincha)
+  if (/consumo|compra|transacci[oó]n/i.test(normalized) && /pichincha/i.test(normalized)) {
     const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
     const comercio = normalized.match(/(?:Comercio|Establecimiento|Concepto)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|$))/i);
     const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-    const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+    const tarjeta4 = extractUltimos4(normalized);
     if (monto) {
       return {
         monto: parseAmount(monto[1]),
         comercio: comercio?.[1]?.trim(),
         fecha: parseDate(fecha?.[1]),
-        ultimos4: tarjeta?.[1],
+        ultimos4: tarjeta4,
         banco: 'Pichincha',
         tipo: 'compra',
       };
@@ -136,16 +137,16 @@ function parseGuayaquil(text: string): ParsedTransaction | null {
   if (!/guayaquil/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Guayaquil',
       tipo: 'compra',
     };
@@ -159,16 +160,16 @@ function parseProdubanco(text: string): ParsedTransaction | null {
   if (!/produbanco/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Produbanco',
       tipo: 'compra',
     };
@@ -182,16 +183,16 @@ function parsePacifico(text: string): ParsedTransaction | null {
   if (!/pac[ií]fico/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Pacifico',
       tipo: 'compra',
     };
@@ -205,16 +206,16 @@ function parseAustro(text: string): ParsedTransaction | null {
   if (!/austro/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Austro',
       tipo: 'compra',
     };
@@ -228,16 +229,16 @@ function parseInternacional(text: string): ParsedTransaction | null {
   if (!/internacional/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Internacional',
       tipo: 'compra',
     };
@@ -251,16 +252,16 @@ function parseDiners(text: string): ParsedTransaction | null {
   if (!/diners/i.test(normalized)) return null;
 
   const monto = normalized.match(/(?:Monto|Valor|USD)[:\s]*\$?([\d.,]+)/i);
-  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|$))/i);
+  const comercio = normalized.match(/(?:Comercio|Establecimiento|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Recuerda|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   if (monto) {
     return {
       monto: parseAmount(monto[1]),
       comercio: comercio?.[1]?.trim(),
       fecha: parseDate(fecha?.[1]),
-      ultimos4: tarjeta?.[1],
+      ultimos4: tarjeta4,
       banco: 'Diners',
       tipo: 'compra',
     };
@@ -295,20 +296,20 @@ function parseGeneric(text: string): ParsedTransaction | null {
 
   const comercio = normalized.match(/(?:Comercio|Establecimiento|Concepto|Descripci[oó]n)[:\s]+(.+?)(?:\s+(?:Tarjeta|Fecha|Monto|Valor|Cuenta|$))/i);
   const fecha = normalized.match(/Fecha[:\s]+([\d/\-]+)/i);
-  const tarjeta = normalized.match(/(?:Tarjeta|termina en)[:\s]*\*{0,}(\d{4})/i);
+  const tarjeta4 = extractUltimos4(normalized);
 
   return {
     monto,
     comercio: comercio?.[1]?.trim(),
     fecha: parseDate(fecha?.[1]),
-    ultimos4: tarjeta?.[1],
+    ultimos4: tarjeta4,
     tipo: 'compra',
   };
 }
 
 function parseAmount(raw: string): number {
-  // Handle formats: "1,234.56" or "1.234,56"
-  const cleaned = raw.replace(/\s/g, '');
+  // Handle formats: "1,234.56" or "1.234,56"; quita puntuacion final
+  const cleaned = raw.replace(/\s/g, '').replace(/[.,]+$/, '');
   if (cleaned.includes(',') && cleaned.includes('.')) {
     if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
       // European: 1.234,56

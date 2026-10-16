@@ -40,10 +40,13 @@ Para cada correo devuelve un objeto:
 Reglas estrictas:
 - Publicidad, promociones, creditos preaprobados, avisos de seguridad/login, codigos de verificacion, newsletters: es_gasto=false.
 - Una notificacion de debito o pago exitoso del banco: es_gasto=true, pendiente=false.
-- Una factura emitida sin evidencia de pago: es_gasto=true, pendiente=true.
-- Un recibo que dice "paid"/"pagado": es_gasto=true, pendiente=false.
-- Transferencias enviadas y retiros cuentan como gasto.
+- Un recibo que dice "paid"/"pagado"/"amount paid": es_gasto=true, pendiente=false.
+- FACTURA EMITIDA = PENDIENTE. Frases como "ha emitido el siguiente documento", "comprobante generado", "disponible para su descarga", "ha recibido una factura", "dias de credito", "credito: 30 dias", "amount due", "open invoice": pendiente=true SIEMPRE. Emitir una factura NO es pagar.
+- Transferencias enviadas y retiros cuentan como gasto pagado.
 - Depositos, ingresos o reembolsos recibidos: es_gasto=false.
+- Formatos de monto: "2.265,50" = 2265.50 (europeo); "1970.000000" = 1970.00; "23.000,00" = 23000.00. Normaliza siempre a numero decimal.
+- "ultimos4": acepta 3 o 4 digitos ("TARJETA TERMINADA EN 352" -> "352"). Nunca cedula, RUC ni numero de documento.
+- "comercio": SOLO el nombre del establecimiento, limpio y corto. Nunca incluyas texto promocional posterior ("Recuerda que...", millas, apps).
 - Si dudas del monto, usa null en vez de inventar.`;
 
 interface EmailIn {

@@ -4,7 +4,8 @@
 import { ParsedTransaction } from './bankParser';
 
 function parseAmount(raw: string): number {
-  const cleaned = raw.replace(/\s/g, '');
+  // Quita puntuacion final de oracion pegada al numero ("2.265,50.")
+  const cleaned = raw.replace(/\s/g, '').replace(/[.,]+$/, '');
   if (cleaned.includes(',') && cleaned.includes('.')) {
     if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
       return parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
@@ -18,7 +19,7 @@ function parseAmount(raw: string): number {
 }
 
 const RECEIPT_HINT =
-  /receipt|invoice|factura|recibo|payment|pago\s|pagado|paid|charged|cobro|suscripci[oó]n|subscription|billing/i;
+  /receipt|invoice|factura|recibo|payment|pago\s|pagado|paid|charged|cobro|suscripci[oó]n|subscription|billing|ha\s+emitido|documento\s+emitido|comprobante/i;
 
 // Marcas conocidas: nombre limpio para mostrar como comercio
 const BRANDS: Array<[RegExp, string]> = [
@@ -68,10 +69,10 @@ export function parseReceipt(
 
   // Primero montos con contexto (Total, Amount paid, Importe...)
   const ctx = text.match(
-    /(?:total(?:\s+(?:due|paid|pagado|a\s+pagar))?|amount\s+(?:paid|due|charged)|importe|monto|grand\s+total)\s*[:\s]\s*(?:USD|EUR|US\$|\$|€)?\s*([\d][\d.,]*)/i
+    /(?:total(?:\s+(?:due|paid|pagado|a\s+pagar))?|amount\s+(?:paid|due|charged)|importe(?:\s+total)?(?:\s+es\s+de)?|monto(?:\s*\([^)]{0,30}\))?|grand\s+total)\s*[:\s]\s*(?:USD|EUR|US\$|\$|€)?\s*(\d[\d.,]*\d|\d)/i
   );
   // Luego cualquier cantidad con simbolo de moneda
-  const plain = text.match(/(?:US\$|\$|€|USD\s?|EUR\s?)\s*([\d][\d.,]*)/);
+  const plain = text.match(/(?:US\$|\$|€|USD\s?|EUR\s?)\s*(\d[\d.,]*\d|\d)/);
 
   const raw = ctx?.[1] || plain?.[1];
   if (!raw) return null;
@@ -96,7 +97,7 @@ export function parseReceipt(
       text
     );
   const evidenciaPorPagar =
-    /open\s+invoice|amount\s+due|due\s+date|por\s+pagar|pendiente\s+de\s+pago|vence\s|link\s+for\s+payment|payment\s+link|will\s+be\s+charged|ha\s+recibido\s+un\(?a\)?\s+factura/i.test(
+    /open\s+invoice|amount\s+due|due\s+date|por\s+pagar|pendiente\s+de\s+pago|vence\s|link\s+for\s+payment|payment\s+link|will\s+be\s+charged|ha\s+recibido\s+un\s*\(?a\)?\s+factura|ha\s+emitido|documento\s+emitido|comprobante\s+(?:electr[oó]nico\s+)?(?:de\s+factura\s+)?(?:ha\s+sido\s+)?generado|disponible\s+para\s+(?:su\s+)?descarga|d[ií]as\s+de\s+cr[eé]dito/i.test(
       text
     );
 
